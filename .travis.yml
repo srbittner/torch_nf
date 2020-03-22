@@ -4,10 +4,4 @@ python:
 install:
   - sudo apt update
   - pip install -e .
-script:
-  - pytest --cov-report=xml --cov=torch_nf tests -W ignore::DeprecationWarning
-env:
-  - CODECOV_TOKEN=""
-after_success:
-  - bash <(curl -s https://codecov.io/bash)
 
