@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 from torch_nf.error_formatters import format_type_err_msg
 
+
 class Bijector(object):
     def __init__(self,):
         super().__init__()
@@ -12,6 +13,7 @@ class Bijector(object):
 
     def forward_and_log_det(self, z, params):
         raise NotImplementedError()
+
 
 class RealNVP(Bijector):
     def __init__(self, D, num_layers, num_units, transform_upper=True):
@@ -28,13 +30,9 @@ class RealNVP(Bijector):
         else:
             z2, z1 = z[:, :, : self.D // 2], z[:, :, self.D // 2 :]
         # upper | lower
-        t, s, params = self._t_s_layer(
-            z1, z1, params, self.D // 2, self.num_units
-        )
+        t, s, params = self._t_s_layer(z1, z1, params, self.D // 2, self.num_units)
         for i in range(self.num_layers - 1):
-            t, s, params = self._t_s_layer(
-                t, s, params, self.num_units, self.num_units
-            )
+            t, s, params = self._t_s_layer(t, s, params, self.num_units, self.num_units)
         t, s, params = self._t_s_layer(
             t, s, params, self.num_units, self.D // 2, relu=False
         )
@@ -77,6 +75,7 @@ class RealNVP(Bijector):
             s = F.relu(s)
         return t, s, params[:, param_ind:]
 
+
 class BatchNorm(Bijector):
     def __init__(self, D, momentum=0.1):
         super().__init__()
@@ -84,7 +83,9 @@ class BatchNorm(Bijector):
         self.D = D
         self.momentum = momentum
         self.eps = 1e-5
-        self.batch_norm = torch.nn.BatchNorm1d(D, eps=self.eps, momentum=momentum, affine=False)
+        self.batch_norm = torch.nn.BatchNorm1d(
+            D, eps=self.eps, momentum=momentum, affine=False
+        )
         self.last_mean = None
         self.last_alpha = None
 
@@ -92,23 +93,23 @@ class BatchNorm(Bijector):
         return self.forward_and_log_det(z, params, use_last=use_last)
 
     def forward_and_log_det(self, z, params, use_last=False):
-        if (use_last):
+        if use_last:
             alpha = self.last_alpha
             z = (z - self.last_mean) / alpha
 
         else:
             z_size = z.size()
-            z_mean = torch.mean(z, dim=[0,1], keepdim=True)
+            z_mean = torch.mean(z, dim=[0, 1], keepdim=True)
             z_mc = z - z_mean
 
             z_norm = self.batch_norm(z.view(-1, self.D))
             z_norm = z_norm.view(z_size[0], z_size[1], self.D)
 
-            alpha = torch.mean(z_mc / z_norm, dim=[0,1], keepdim=True)
+            alpha = torch.mean(z_mc / z_norm, dim=[0, 1], keepdim=True)
 
-            self.last_mean = z_mean[0,0]
+            self.last_mean = z_mean[0, 0]
             self.last_alpha = alpha
-        
+
         log_det = -torch.sum(torch.log(alpha))
         return z, log_det, params
 
@@ -128,12 +129,10 @@ class ToSimplex(Bijector):
         sum_ex = torch.sum(ex, dim=2)
         den = sum_ex + 1.0
         log_det = (
-                torch.log(1.0 - (sum_ex / den))
-                - self.D * torch.log(den)
-                + torch.sum(z, axis=2)
+            torch.log(1.0 - (sum_ex / den))
+            - self.D * torch.log(den)
+            + torch.sum(z, axis=2)
         )
-        z = torch.cat((ex / den[:,:,None], 1.0 / den[:,:,None]), axis=2)
+        z = torch.cat((ex / den[:, :, None], 1.0 / den[:, :, None]), axis=2)
 
         return z, log_det, params
-
-
