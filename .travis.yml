@@ -4,4 +4,5 @@ python:
 install:
   - sudo apt update
   - pip install -e .
-
+script:
+  - pytest
