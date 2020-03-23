@@ -5,4 +5,8 @@ install:
   - sudo apt update
   - pip install -e .
 script:
-  - pytest
+  - pytest --cov-report=xml --cov=epi tests -W ignore::DeprecationWarning
+env:
+  - CODECOV_TOKEN="b22892d3-c31d-4841-b2f3-34eb120f54dd"
+after_success:
+  - bash <(curl -s https://codecov.io/bash)
