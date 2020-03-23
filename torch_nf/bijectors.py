@@ -294,7 +294,7 @@ class BatchNorm(Bijector):
         """
         if use_last:
             alpha = self.__last_alpha
-            z = (z - self.__last_mean) / alpha
+            z_norm = (z - self.__last_mean) / alpha
 
         else:
             z_size = z.size()

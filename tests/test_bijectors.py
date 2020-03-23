@@ -121,6 +121,10 @@ def test_BatchNorm():
     z_true = (z_in - last_mean[None,None,:]) / last_alpha[None, None, :]
     assert(np.sum((z.numpy() - z_true.numpy())**2) <  1e-2)
     assert(np.isclose(log_det.numpy(), -np.sum(np.log(last_alpha.numpy()))))
+
+    z2, log_det = batch_norm(z_in, use_last=True)
+    assert(np.sum((z2.numpy() - z_true.numpy())**2) <  1e-2)
+
     return None
 
 def test_ToSimplex():
@@ -149,7 +153,7 @@ def test_ToSimplex():
 
 
 if __name__ == "__main__":
-    #test_Bijector_init()
-    #test_RealNVP()
-    #test_BatchNorm()
+    test_Bijector_init()
+    test_RealNVP()
+    test_BatchNorm()
     test_ToSimplex()
