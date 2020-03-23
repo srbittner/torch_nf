@@ -146,6 +146,6 @@ def test_Dirichlet():
 
 
 if __name__ == "__main__":
-    #test_exponential_family_init()
-    #test_MVN()
+    test_exponential_family_init()
+    test_MVN()
     test_Dirichlet()
