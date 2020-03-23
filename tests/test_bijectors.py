@@ -107,6 +107,21 @@ def test_BatchNorm():
         batch_norm = BatchNorm(D, 0.5, -1.)
 
 
+    batch_norm = BatchNorm(D, .1, 1e-5)
+    D_theta = batch_norm.count_num_params()
+    assert(D_theta == 0)
+
+    M = 20
+    N = 50
+    z_in = torch.tensor(np.random.normal(10., 1., (M, N, D))).float()
+    z, log_det = batch_norm(z_in)
+    last_mean = batch_norm.get_last_mean()
+    last_alpha = batch_norm.get_last_alpha()
+    z_mc = z_in - last_mean[None, None, :]
+    z_true = (z_in - last_mean[None,None,:]) / last_alpha[None, None, :]
+    assert(np.sum((z.numpy() - z_true.numpy())**2) <  1e-2)
+    assert(np.isclose(log_det.numpy(), -np.sum(np.log(last_alpha.numpy()))))
+    return None
 
 def test_ToSimplex():
     D = 4
@@ -114,9 +129,27 @@ def test_ToSimplex():
     assert bij.name == "ToSimplex"
     assert bij.D == D
 
+    M = 20
+    N = 50
+    z_in = torch.tensor(np.random.normal(0., 1., (M, N, D-1))).float()
+    z, log_det = bij(z_in)
+    z_in = z_in.numpy()
+    z = z.numpy()
+    log_det = log_det.numpy()
+    assert(np.isclose(np.sum(z, 2), 1.).all())
+    expz = np.exp(z_in)
+    sum_exp = np.sum(expz, 2)
+    den = sum_exp + 1
+    z_true = np.concatenate((expz, np.ones((M, N, 1))), axis=2)/ np.expand_dims(den, 2)
+    assert(np.isclose(z_true, z).all())
+    log_det_true = np.log(1 - (sum_exp/(sum_exp+1))) - D*np.log(sum_exp+1) - np.sum(z, 2)
+    assert(np.isclose(z_true, z).all())
+    
+    return None
+
 
 if __name__ == "__main__":
     #test_Bijector_init()
-    test_RealNVP()
+    #test_RealNVP()
     #test_BatchNorm()
-    #test_ToSimplex()
+    test_ToSimplex()

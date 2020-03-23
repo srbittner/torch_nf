@@ -218,6 +218,20 @@ class RealNVP(Bijector):
 
 
 class BatchNorm(Bijector):
+    """Batch Norm bijector.
+
+    For normalizing flows, it's useful to have a BatchNorm layer that
+    propagates its log-determinant jacobian.  This Bijector keeps track of its
+    most recently used normalization parameters, which can be invoked in the
+    forward transform when use_last=True.
+
+    :param D: Dimensionality of the bijection.
+    :type D: int
+    :param momentum: Momentum parameter of batch norm, default 0.1.
+    :type momentum: float, optional.
+    :param eps: Eps parameter of batch norm, default 1e-5.
+    :type eps: float, optional.
+    """
     def __init__(self, D, momentum=0.1, eps=1e-5):
         super().__init__(D)
         self.name = "BatchNorm"
@@ -267,41 +281,60 @@ class BatchNorm(Bijector):
     def get_last_alpha(self,):
         return self.__last_alpha
 
-    def __call__(self, z, params, use_last=False):
-        return self.forward_and_log_det(z, params, use_last=use_last)
+    def __call__(self, z, use_last=False):
+        return self.forward_and_log_det(z, use_last=use_last)
 
-    def forward_and_log_det(self, z, params, use_last=False):
+    def forward_and_log_det(self, z, use_last=False):
+        """Batch norm forward and log determinant of the jacobian.
+
+        :param z: Input to the bijector (M, N, D).
+        :type z: torch.tensor
+        :param use_last: Use previous mean and alpha of batch norm, default False.
+        :type params: bool, optional
+        """
         if use_last:
             alpha = self.__last_alpha
             z = (z - self.__last_mean) / alpha
 
         else:
             z_size = z.size()
-            z_mean = torch.mean(z, dim=[0, 1], keepdim=True)
-            z_mc = z - z_mean
+            z_vec = z.view(-1, self.D)
+            z_var = torch.var(z_vec, dim=0)
 
-            z_norm = self.batch_norm(z.view(-1, self.D))
+            z_norm = self.batch_norm(z_vec)
+            z_norm_var = torch.var(z_norm, dim=0)
+            alpha = torch.sqrt(z_var) / torch.sqrt(z_norm_var)
+            zn_alpha = z_norm*alpha[None, :]
+            mean = torch.mean(z_vec - zn_alpha, dim=0)
+
             z_norm = z_norm.view(z_size[0], z_size[1], self.D)
 
-            alpha = torch.mean(z_mc / z_norm, dim=[0, 1], keepdim=True)
-
-            self.__last_mean = z_mean[0, 0]
+            self.__last_mean = mean
             self.__last_alpha = alpha
 
         log_det = -torch.sum(torch.log(alpha))
-        return z, log_det, params
+        return z_norm, log_det
 
 
 class ToSimplex(Bijector):
+    """Maps tensor in (M,N,D-1) to D-simplex.
+
+    :param D: Dimensionality of the bijection.
+    :type D: int
+    """
     def __init__(self, D):
         super().__init__(D)
         self.name = "ToSimplex"
 
-    def __call__(self, z, params, use_last=False):
-        return self.forward_and_log_det(z, params, use_last=use_last)
+    def __call__(self, z):
+        return self.forward_and_log_det(z)
 
-    def forward_and_log_det(self, z, params):
+    def forward_and_log_det(self, z):
+        """Forward transform and log det jac of mapping to D-simplex.
 
+        :param z: Input to the bijector (M, N, D).
+        :type z: torch.tensor
+        """
         ex = torch.exp(z)
         sum_ex = torch.sum(ex, dim=2)
         den = sum_ex + 1.0
@@ -312,4 +345,4 @@ class ToSimplex(Bijector):
         )
         z = torch.cat((ex / den[:, :, None], 1.0 / den[:, :, None]), axis=2)
 
-        return z, log_det, params
+        return z, log_det
