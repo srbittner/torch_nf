@@ -116,7 +116,8 @@ class MVN(ExponentialFamily):
         """Sample from prior distribution of the natural parameter eta.
 
         :math:`\\mu_i \\sim \\mathcal{N}(0, \\sigma_{\\mu})`
-        :math:`\\Sigma \\sim \\mathcal{IW}(df=iw_df_fac*D, scale=df_fac*D*I)`
+
+        :math:`\\Sigma \\sim \\mathcal{IW}(df=\\text{iw_df_fac}*D, scale=\\text{df_fac}*D*I)`
 
         :param N: Number of eta samples.
         :type N: int, optional
@@ -138,7 +139,7 @@ class MVN(ExponentialFamily):
     def T(self, z):
         """Sufficient statistic of the exponential family.
 
-        :math:`T(z) = z, zz^\top`
+        :math:`T(z) = z, zz^{\\top}`
         
         We eliminate redundancy in T(z) by vectorizing the upper triangular
         part of the second moment matrix.
@@ -251,8 +252,8 @@ class Dirichlet(ExponentialFamily):
     def T(self, z):
         """Sufficient statistic of the exponential family.
 
-        :math:`T(z) = \\log(z)
-        :math:`\\log(h(z)) = \\sum_i \\log(z_i)
+        :math:`T(z) = \\log(z)`
+        :math:`\\log(h(z)) = \\sum_i \\log(z_i)`
 
         The log base measure is concatenated onto the end of T(z).
 
