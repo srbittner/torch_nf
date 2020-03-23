@@ -17,6 +17,14 @@ def test_exponential_family_init():
     assert exp_fam.D == D
     assert exp_fam.support_layer is None
     assert exp_fam.D_eta == D
+    
+    with raises(TypeError):
+        exp_fam = ExponentialFamily('foo')
+    with raises(ValueError):
+        exp_fam = ExponentialFamily(0)
+        
+    with raises(TypeError):
+        exp_fam = ExponentialFamily(4, int)
 
     with raises(NotImplementedError):
         exp_fam.sample_eta(N)
@@ -32,6 +40,7 @@ def test_exponential_family_init():
     z = np.zeros((D,))
     with raises(NotImplementedError):
         exp_fam.T(z)
+
 
     return None
 
@@ -93,6 +102,13 @@ def test_MVN():
                 ind += 1
         assert(np.isclose(T_z.numpy(), T_z_true).all())
 
+        # N=1 case.
+        _ = ef.sample_eta(1, sigma_mu=1., iw_df_fac=5)
+
+        # KL
+        KLs = ef.KL(z, np.ones((M,N)), eta)
+        assert(not (np.isnan(KLs).any()))
+        
     return None
 
 
@@ -142,6 +158,10 @@ def test_Dirichlet():
         log_h_z = np.sum(_T_z, axis=2)
         T_z_true = np.concatenate((_T_z, np.expand_dims(log_h_z, 2)), axis=2)
         assert(np.isclose(T_z.numpy(), T_z_true).all())
+
+        # KL
+        KLs = ef.KL(z, np.ones((M,N)), eta)
+        assert(not (np.isnan(KLs).any()))
     return None
 
 

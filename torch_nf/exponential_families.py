@@ -4,8 +4,8 @@ import torch
 import numpy as np
 import scipy
 from scipy.stats import invwishart
-from torch_nf.bijectors import ToSimplex
-
+from torch_nf.bijectors import Bijector, ToSimplex
+from torch_nf.error_formatters import format_type_err_msg
 
 class ExponentialFamily(object):
     """ Exponential family distributions for training EFNs.
@@ -19,11 +19,35 @@ class ExponentialFamily(object):
     :param D: Dimensionality of random variable.
     :type D: int
     """
-    def __init__(self, D):
+    def __init__(self, D, support_layer=None):
         super().__init__()
         self.D = D
-        self.support_layer = None
+        self.support_layer = support_layer
         self.D_eta = self._get_D_eta()
+
+    @property
+    def D(self):
+        return self.__D
+    @D.setter
+    def D(self, val):
+        if type(val) is not int:
+            raise(TypeError(format_type_err_msg(self, "D", val, int)))
+        elif (val < 1):
+            raise ValueError("Exponential family dimensionality must be greater than 1.")
+        self.__D = val
+   
+    @property
+    def support_layer(self):
+        return self.__support_layer
+    @support_layer.setter
+    def support_layer(self, val):
+        if (val is None or issubclass(val, Bijector)):
+            self.__support_layer = val
+        else:
+            raise(TypeError(format_type_err_msg(self, "support_layer", val, Bijector)))
+        self.__support_layer = val
+            
+
 
     def _get_D_eta(self,):
         """Calculate dimensionality of natural parameter.
@@ -78,7 +102,7 @@ class ExponentialFamily(object):
 
 class MVN(ExponentialFamily):
     def __init__(self, D):
-        super().__init__(D)
+        super().__init__(D, None)
 
     def _get_D_eta(self,):
         """Calculate dimensionality of natural parameter.
@@ -191,8 +215,7 @@ class MVN(ExponentialFamily):
 
 class Dirichlet(ExponentialFamily):
     def __init__(self, D):
-        super().__init__(D)
-        self.support_layer = ToSimplex
+        super().__init__(D, ToSimplex)
 
     def _get_D_eta(self,):
         """Calculate dimensionality of natural parameter.
