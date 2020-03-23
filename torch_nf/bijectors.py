@@ -5,26 +5,139 @@ from torch_nf.error_formatters import format_type_err_msg
 
 
 class Bijector(object):
-    def __init__(self,):
+    """Base class for bijectors to be composed into normalizing flows. 
+
+    :param D: Dimensionality of the bijection.
+    :type D: int
+    """
+
+    def __init__(self, D):
         super().__init__()
+        self.D = D
+
+    @property
+    def D(self,):
+        return self.__D
+
+    @D.setter
+    def D(self, val):
+        if type(val) is not int:
+            raise (TypeError(format_type_err_msg(self, "D", val, int)))
+        elif val < 1:
+            raise ValueError("Bijector dimensionality must be positive.")
+        self.__D = val
 
     def __call__(self, z, params):
         return self.forward_and_log_det(z, params)
 
     def forward_and_log_det(self, z, params):
+        """Run the bijector forward on the input and compute the log det jac.
+
+        The input z should have two batch dimensions.  The first, of size M,
+        should match the leading dimension of parameters params.  The second
+        batch dimension should be the number of samples per parameterization N.
+        The earliest elements of the second dimension of z shall be used to 
+        parameterize this bijection. The left-over parameters are returned in
+        "params" for use in subsequent bijections.
+
+        :param z: Input to the bijector (M, N, D).
+        :type z: torch.tensor
+        :param params: Parameterization of the bijector (M, >|theta|).
+        :type params: torch.tensor
+        """
         raise NotImplementedError()
 
+    def count_num_params(self,):
+        """Return the number of parameters for the bijector.
+
+        :return: Number of parameters of the bijector.
+        :rtype: int
+        """
+        return 0
 
 class RealNVP(Bijector):
+    """RealNVP bijector.
+
+    A fully connected neural network parameterizes the conditional affine
+    transformation of half of the dimensions of the input z2 on the other half z1.
+    The upper half is conditioned on the lower half if transform_upper=True,
+    and the converse otherwise.
+
+    :param D: Dimensionality of the bijection.
+    :type D: int
+    :param num_layers: Number of layers in the neural network for p(z2 | z1).
+    :type num_layers: int
+    :param num_units: Number of hidden units per layer in network for p(z2 | z1).
+    :type num_units: int
+    :param transform_upper: z2 is up-half, and z1 is low-half, default True.
+    :type transform_upper: bool, optional
+
+    """
+
     def __init__(self, D, num_layers, num_units, transform_upper=True):
-        super().__init__()
+        super().__init__(D)
         self.name = "RealNVP"
-        self.D = D
         self.num_layers = num_layers
         self.num_units = num_units
         self.transform_upper = transform_upper
 
+    @property
+    def num_layers(self,):
+        return self.__num_layers
+
+    @num_layers.setter
+    def num_layers(self, val):
+        if type(val) is not int:
+            raise (TypeError(format_type_err_msg(self, "num_layers", val, int)))
+        elif val < 1:
+            raise ValueError("RealNVP.num_layers must be positive.")
+        elif val > 5:
+            print(
+                "Warning: RealNVP.num_layers set to maximum of 5 (received %d)." % val
+            )
+            self.__num_layers = 5
+        else:
+            self.__num_layers = val
+
+    @property
+    def num_units(self,):
+        return self.__num_units
+
+    @num_units.setter
+    def num_units(self, val):
+        if type(val) is not int:
+            raise (TypeError(format_type_err_msg(self, "num_units", val, int)))
+        elif val < 15:
+            print("Warning: num_units set to minimum of 15 (received %d)." % val)
+            self.__num_units = 15
+        elif val > 1000:
+            print("Warning: num_units set to maximum of 1,000 (received %d)." % val)
+            self.__num_units = 1000
+        else:
+            self.__num_units = val
+
+    @property
+    def transform_upper(self,):
+        return self.__transform_upper
+
+    @transform_upper.setter
+    def transform_upper(self, val):
+        if type(val) is not bool:
+            raise (TypeError(format_type_err_msg(self, "transform_upper", val, bool)))
+        self.__transform_upper = val
+
     def forward_and_log_det(self, z, params):
+        """Forward transform of the RealNVP and log determinant of the jacobian.
+
+        The shift and scale parameters of the upper (lower) half are outputs 
+        of two separate neural networks which take the lower (upper) half
+        as input.
+
+        :param z: Input to the bijector (M, N, D).
+        :type z: torch.tensor
+        :param params: Parameterization of the bijector (M, >|theta|).
+        :type params: torch.tensor
+        """
         if self.transform_upper:
             z1, z2 = z[:, :, : self.D // 2], z[:, :, self.D // 2 :]
         else:
@@ -47,6 +160,21 @@ class RealNVP(Bijector):
         return z, log_det, params
 
     def _t_s_layer(self, x_t, x_s, params, D_in, D_out, relu=True):
+        """One layer of the neural network for shift and scale operations t and s. 
+
+        :param x_t: Input to layer of shift neural network (M, N, D_in).
+        :type x_t: torch.tensor
+        :param x_s: Input to layer of shift neural network (M, N, D_in).
+        :type x_s: torch.tensor
+        :param params: Parameterization of the bijector (M, >|theta|).
+        :type params: torch.tensor
+        :param D_in: Dimensionality of input to networks.
+        :type D_in: int
+        :param D_out: Dimensionality of output of networks.
+        :type D_out: int
+        :param relu: Pass linear network operation through relu nonlinearity, default True.
+        :type D_out: bool, optional
+        """
         param_ind = 0
         _num_param_weight = D_in * D_out
         t_weight = params[:, param_ind : (param_ind + _num_param_weight)].view(
@@ -75,27 +203,77 @@ class RealNVP(Bijector):
             s = F.relu(s)
         return t, s, params[:, param_ind:]
 
+    def count_num_params(self,):
+        """Return the number of parameters for the bijector.
+
+        :return: Number of parameters of the bijector.
+        :rtype: int
+        """
+        return 2 * (
+            self.D * self.num_units
+            + self.D // 2
+            + self.num_units
+            + (self.num_layers - 1) * (self.num_units + 1) * self.num_units
+        )
+
 
 class BatchNorm(Bijector):
-    def __init__(self, D, momentum=0.1):
-        super().__init__()
+    def __init__(self, D, momentum=0.1, eps=1e-5):
+        super().__init__(D)
         self.name = "BatchNorm"
-        self.D = D
         self.momentum = momentum
-        self.eps = 1e-5
+        self.eps = eps
         self.batch_norm = torch.nn.BatchNorm1d(
             D, eps=self.eps, momentum=momentum, affine=False
         )
-        self.last_mean = None
-        self.last_alpha = None
+        self.__last_mean = None
+        self.__last_alpha = None
+
+    @property
+    def momentum(self,):
+        return self.__momentum
+
+    @momentum.setter
+    def momentum(self, val):
+        if type(val) is not float:
+            raise (TypeError(format_type_err_msg(self, "momentum", val, float)))
+        elif val < 0.0:
+            raise (ValueError("BatchNorm.momentum cannot be negative."))
+        elif val > 1.0:
+            print(
+                "Warning: BathNorm.momentum  set to maximum of 1.0 (received %.2E)."
+                % val
+            )
+            self.__momentum = 1.0
+        else:
+            self.__momentum = val
+
+    @property
+    def eps(self,):
+        return self.__eps
+
+    @eps.setter
+    def eps(self, val):
+        if type(val) is not float:
+            raise (TypeError(format_type_err_msg(self, "eps", val, float)))
+        elif val < 0.0:
+            raise (ValueError("BatchNorm.eps cannot be negative."))
+        else:
+            self.__eps = val
+
+    def get_last_mean(self,):
+        return self.__last_mean
+
+    def get_last_alpha(self,):
+        return self.__last_alpha
 
     def __call__(self, z, params, use_last=False):
         return self.forward_and_log_det(z, params, use_last=use_last)
 
     def forward_and_log_det(self, z, params, use_last=False):
         if use_last:
-            alpha = self.last_alpha
-            z = (z - self.last_mean) / alpha
+            alpha = self.__last_alpha
+            z = (z - self.__last_mean) / alpha
 
         else:
             z_size = z.size()
@@ -107,8 +285,8 @@ class BatchNorm(Bijector):
 
             alpha = torch.mean(z_mc / z_norm, dim=[0, 1], keepdim=True)
 
-            self.last_mean = z_mean[0, 0]
-            self.last_alpha = alpha
+            self.__last_mean = z_mean[0, 0]
+            self.__last_alpha = alpha
 
         log_det = -torch.sum(torch.log(alpha))
         return z, log_det, params
@@ -116,14 +294,13 @@ class BatchNorm(Bijector):
 
 class ToSimplex(Bijector):
     def __init__(self, D):
-        super().__init__()
+        super().__init__(D)
         self.name = "ToSimplex"
-        self.D = D
 
     def __call__(self, z, params, use_last=False):
         return self.forward_and_log_det(z, params, use_last=use_last)
 
-    def forward_and_log_det(self, z, params, use_last=False):
+    def forward_and_log_det(self, z, params):
 
         ex = torch.exp(z)
         sum_ex = torch.sum(ex, dim=2)
