@@ -28,6 +28,7 @@ class ExponentialFamily(object):
     @property
     def D(self):
         return self.__D
+
     @D.setter
     def D(self, val):
         if type(val) is not int:
@@ -230,7 +231,7 @@ class Dirichlet(ExponentialFamily):
     def sample_eta(self, N=50, lb=0.5, ub=2.):
         """Sample from prior distribution of the natural parameter eta.
 
-        :math:`\\alpha_i \\sim \\mathcal{U}U[lb, ub]`
+        :math:`\\alpha_i \\simi U[lb, ub]`
 
         A one is tacked onto the end of this natural parameter because there
         is a non-constant log base measure for the Dirichlet.
@@ -253,6 +254,7 @@ class Dirichlet(ExponentialFamily):
         """Sufficient statistic of the exponential family.
 
         :math:`T(z) = \\log(z)`
+
         :math:`\\log(h(z)) = \\sum_i \\log(z_i)`
 
         The log base measure is concatenated onto the end of T(z).

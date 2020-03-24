@@ -240,8 +240,8 @@ class BatchNorm(Bijector):
         self.batch_norm = torch.nn.BatchNorm1d(
             D, eps=self.eps, momentum=momentum, affine=False
         )
-        self.__last_mean = None
-        self.__last_alpha = None
+        self.__last_mean = torch.tensor(np.zeros(D)).float()
+        self.__last_alpha = torch.tensor(np.ones(D)).float()
 
     @property
     def momentum(self,):
