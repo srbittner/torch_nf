@@ -91,8 +91,8 @@ def test_BatchNorm():
     assert batch_norm.D == D
     assert batch_norm.momentum == momentum
     assert batch_norm.eps == eps
-    assert batch_norm.get_last_mean() == None
-    assert batch_norm.get_last_alpha() == None
+    assert np.isclose(batch_norm.get_last_mean(), np.zeros(D)).all()
+    assert np.isclose(batch_norm.get_last_alpha(), np.ones(D)).all()
 
     batch_norm = BatchNorm(D, 1.01)
     assert(batch_norm.momentum == 1.)
