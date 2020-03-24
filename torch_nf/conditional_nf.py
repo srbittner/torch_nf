@@ -10,8 +10,8 @@ class ConditionedNormFlow(torch.nn.Module):
         super().__init__()
         self.nf = nf
         self.D_x = D_x
-        self.hidden_layers = hidden_layers
         self.D_params = nf.D_params
+        self.hidden_layers = hidden_layers
 
         layers = [
             ("linear1", torch.nn.Linear(D_x, hidden_layers[0])),
@@ -35,10 +35,62 @@ class ConditionedNormFlow(torch.nn.Module):
         layer_dict = OrderedDict(layers)
         self.param_net = torch.nn.Sequential(layer_dict)
 
+    @property
+    def nf(self):
+        return self.__nf
+
+    @nf.setter
+    def nf(self, val):
+        if (type(val) is not NormFlow):
+            raise TypeError(format_type_err_msg(self, "nf", val, NormFlow))
+        self.__nf = val
+
+    @property
+    def D_x(self,):
+        return self.__D_x
+
+    @D_x.setter
+    def D_x(self, val):
+        if (type(val) is not int):
+            raise TypeError(format_type_err_msg(self, "D_x", val, int))
+        elif val < 1:
+            raise ValueError("D_x %d must be greater than 0." % val)
+        self.__D_x = val
+
+
+    @property
+    def D_params(self,):
+        return self.__D_params
+
+    @D_params.setter
+    def D_params(self, val):
+        if (type(val) is not int):
+            raise TypeError(format_type_err_msg(self, "D_params", val, int))
+        elif val < 1:
+            raise ValueError("D_params %d must be greater than 0." % val)
+        self.__D_params = val
+
+
+    @property
+    def hidden_layers(self,):
+        return self.__hidden_layers
+
+    @hidden_layers.setter
+    def hidden_layers(self, val):
+        if (type(val) is not list):
+            raise TypeError(format_type_err_msg(self, "hidden_layers", val, list))
+        for i, num_units in enumerate(val):
+            if type(num_units) is not int:
+                raise TypeError(format_type_err_msg(self, "hidden_layers[%d]" % i, val, int))
+            if num_units < 1:
+                raise ValueError("Hidden unit counts must be positive.")
+        self.__hidden_layers = val
+
     def __call__(self, x, N=100):
         params = self.param_net(x)
-        z, log_det = self.nf(params, N=N)
+        z, log_det = self.nf(N=N, params=params)
         return z, log_det
+
 
 class NormFlow(object):
     def __init__(

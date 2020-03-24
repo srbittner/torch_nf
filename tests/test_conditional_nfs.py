@@ -11,7 +11,7 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
 
-def test_NormFlow_init():
+def test_NormFlow():
     """Test NormFlow class initialization."""
 
     D = 4
@@ -88,6 +88,22 @@ def test_NormFlow_init():
 
     return None
 
+def test_ConditionedNormFlow():
+    D = 4
+    nf = NormFlow(D, 'coupling', True, 1, 2, 20, None)
+    D_x = 10
+    hidden_layers = [50, 100]
+    cnf = ConditionedNormFlow(nf, D_x, hidden_layers)
+
+    M = 20
+    N = 50
+    eta = torch.tensor(np.random.normal(0., 1., (M, cnf.D_x))).float()
+    z, log_q_z = cnf(eta, N=N)
+    assert(z.shape[0] == M and z.shape[1] == N and z.shape[2] == D)
+    assert(log_q_z.shape[0] == M and z.shape[1] == N)
+
+    return None
 
 if __name__ == "__main__":
-    test_NormFlow_init()
+    test_NormFlow()
+    test_ConditionedNormFlow()
