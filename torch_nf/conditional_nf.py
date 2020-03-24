@@ -5,7 +5,6 @@ from torch_nf.error_formatters import format_type_err_msg
 from torch_nf.bijectors import RealNVP, BatchNorm
 from collections import OrderedDict
 
-
 class ConditionedNormFlow(torch.nn.Module):
     def __init__(self, nf, D_x, hidden_layers):
         super().__init__()
@@ -41,28 +40,25 @@ class ConditionedNormFlow(torch.nn.Module):
         z, log_det = self.nf(params, N=N)
         return z, log_det
 
-
 class NormFlow(object):
     def __init__(
         self,
         D,
         arch_type,
+        conditioner=False,
         num_stages=1,
         num_layers=2,
         num_units=None,
         support_layer=None,
     ):
         super().__init__()
-        self._set_D(D)
-        self._set_arch_type(arch_type)
-        if self.arch_type is not "coupling":
-            raise NotImplementedError()
-        self._set_num_stages(num_stages)
-        self._set_num_layers(num_layers)
-        if num_units is None:
-            num_units = max(2 * D, 15)
-        self._set_num_units(num_units)
-        self.D_params = self.count_num_params()
+        self.D = D
+        self.arch_type = arch_type
+        self.conditioner = conditioner
+        self.num_stages = num_stages
+        self.num_layers = num_layers
+        self.num_units = num_units
+        self.support_layer = support_layer
 
         self.bijectors = []
         for i in range(num_stages):
@@ -79,8 +75,101 @@ class NormFlow(object):
         if support_layer is not None:
             self.bijectors.append(support_layer(D))
 
-    def __call__(self, params, N=100):
-        return self.forward(params, N)
+        self.count_num_params()
+
+        if not self.conditioner:
+            self.params = torch.nn.init.xavier_normal_(
+                torch.zeros(1, self.D_params, requires_grad=True)
+            )
+
+    @property
+    def D(self,):
+        return self.__D
+
+    @D.setter
+    def D(self, val):
+        if type(val) is not int:
+            raise TypeError(format_type_err_msg(self, "D", val, int))
+        elif val < 2:
+            raise ValueError("NormalizingFlow D %d must be greater than 0." % val)
+        self.__D = val
+
+    @property
+    def arch_type(self,):
+        return self.__arch_type
+
+    @arch_type.setter
+    def arch_type(self, val):
+        arch_types = ["coupling"]
+        if type(val) is not str:
+            raise TypeError(format_type_err_msg(self, "arch_type", val, str))
+        if val not in arch_types:
+            raise ValueError('NormalizingFlow arch_type must be "coupling".')
+        self.__arch_type = val
+
+    @property
+    def conditioner(self,):
+        return self.__conditioner
+
+    @conditioner.setter
+    def conditioner(self, val):
+        if type(val) is not bool:
+            raise TypeError(format_type_err_msg(self, "conditioner", val, bool))
+        self.__conditioner = val
+
+    @property
+    def num_stages(self,):
+        return self.__num_stages
+
+    @num_stages.setter
+    def num_stages(self, val):
+        if type(val) is not int:
+            raise TypeError(format_type_err_msg(self, "num_stages", val, int))
+        elif val < 1:
+            raise ValueError(
+                "NormalizingFlow num_stages %d must be greater than 0." % val
+            )
+        self.__num_stages = val
+
+    @property
+    def num_layers(self,):
+        return self.__num_layers
+
+    @num_layers.setter
+    def num_layers(self, val):
+        if type(val) is not int:
+            raise TypeError(format_type_err_msg(self, "num_layers", val, int))
+        elif val < 1:
+            raise ValueError(
+                "NormalizingFlow num_layers arg %d must be greater than 0." % val
+            )
+        self.__num_layers = val
+
+    @property
+    def num_units(self,):
+        return self.__num_units
+
+    @num_units.setter
+    def num_units(self, val):
+        if type(val) is not int:
+            raise TypeError(format_type_err_msg(self, "num_units", val, int))
+        elif val < 1:
+            raise ValueError(
+                "NormalizingFlow num_units %d must be greater than 0." % val
+            )
+        elif val < 15:
+            print(
+                "Warning: NormFlow.num_layers set to minimum of 15 (received %d)." % val
+            )
+            self.__num_units = 15
+        else:
+            self.__num_units = val
+
+    def __call__(self, N=100, params=None):
+        if not self.conditioner:
+            return self.forward(self.params, N)
+        else:
+            return self.forward(params, N)
 
     def forward(self, params, N=100):
         M = params.size(0)
@@ -94,64 +183,18 @@ class NormFlow(object):
 
         for i, bijector in enumerate(self.bijectors):
             if bijector.name == "BatchNorm":
-                z, log_det, params = bijector(z, params, use_last=(M == 1))
+                z, log_det = bijector(z, use_last=(M == 1))
             else:
-                z, log_det, params = bijector(z, params)
+                if bijector.count_num_params() > 0:
+                    z, log_det, params = bijector(z, params)
+                else:
+                    z, log_det = bijector(z)
             log_q_z = log_q_z - log_det
 
         return z, log_q_z
 
-    def _set_arch_type(self, arch_type):
-        arch_types = ["coupling"]
-        if type(arch_type) is not str:
-            raise TypeError(format_type_err_msg(self, "arch_type", arch_type, str))
-        if arch_type not in arch_types:
-            raise ValueError('NormalizingFlow arch_type must be "coupling".')
-        self.arch_type = arch_type
-
-    def _set_D(self, D):
-        if type(D) is not int:
-            raise TypeError(format_type_err_msg(self, "D", D, int))
-        elif D < 2:
-            raise ValueError("NormalizingFlow D %d must be greater than 0." % D)
-        self.D = D
-
-    def _set_num_stages(self, num_stages):
-        if type(num_stages) is not int:
-            raise TypeError(format_type_err_msg(self, "num_stages", num_stages, int))
-        elif num_stages < 1:
-            raise ValueError(
-                "NormalizingFlow num_stages %d must be greater than 0." % num_stages
-            )
-        self.num_stages = num_stages
-
-    def _set_num_layers(self, num_layers):
-        if type(num_layers) is not int:
-            raise TypeError(format_type_err_msg(self, "num_layers", num_layers, int))
-        elif num_layers < 1:
-            raise ValueError(
-                "NormalizingFlow num_layers arg %d must be greater than 0." % num_layers
-            )
-        self.num_layers = num_layers
-
-    def _set_num_units(self, num_units):
-        if type(num_units) is not int:
-            raise TypeError(format_type_err_msg(self, "num_units", num_units, int))
-        elif num_units < 1:
-            raise ValueError(
-                "NormalizingFlow num_units %d must be greater than 0." % num_units
-            )
-        self.num_units = num_units
-
     def count_num_params(self,):
-        if self.arch_type == "coupling":
-            return 2 * (
-                2
-                * self.num_stages
-                * (
-                    self.D * self.num_units
-                    + self.D // 2
-                    + self.num_units
-                    + (self.num_layers - 1) * (self.num_units + 1) * self.num_units
-                )
-            )
+        self.D_params = 0
+        for bijector in self.bijectors:
+            self.D_params += bijector.count_num_params()
+
