@@ -86,6 +86,11 @@ class ConditionedNormFlow(torch.nn.Module):
         z, log_det = self.nf(N=N, params=params)
         return z, log_det
 
+    def log_prob(self, z, x):
+        params = self.param_net(x)
+        log_prob = self.nf.log_prob(z, params)
+        return log_prob
+
 
 class NormFlow(object):
     def __init__(
@@ -245,9 +250,10 @@ class NormFlow(object):
 
     def inverse(self, z, params):
         num_bijectors = len(self.bijectors)
-        idx = self.count_num_params()
-        sum_log_det = 0.0
-        for i in range(num_bijectors + 1, -1, -1):
+        z_size = z.size()
+        idx = self.D_params
+        sum_log_det = torch.zeros((z_size[0], z_size[1]))
+        for i in range(num_bijectors-1, -1, -1):
             bijector = self.bijectors[i]
             num_ps = bijector.count_num_params()
             if num_ps > 0:
@@ -258,14 +264,17 @@ class NormFlow(object):
             sum_log_det += log_det
         return z, sum_log_det
 
-    def log_prob(self, z, params):
-        z, sum_log_det = self.inverse(z, params)
+    def log_prob(self, z, params=None):
+        if not self.conditioner:
+            z, sum_log_det = self.inverse(z, self.params)
+        else:
+            z, sum_log_det = self.inverse(z, params)
         log_q_z = torch.log(
             torch.prod(
-                torch.exp((-torch.square(z)) / 2.0) / np.sqrt(2.0 * np.pi), axis=2
+                torch.exp(-(z**2) / 2.0) / np.sqrt(2.0 * np.pi), axis=2
             )
         )
-        return log_q_z
+        return log_q_z - sum_log_det
 
     def count_num_params(self,):
         self.D_params = 0

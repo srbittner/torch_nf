@@ -75,6 +75,8 @@ def test_NormFlow():
     z, log_q_z = nf(N)
     assert(z.shape[0] == 1 and z.shape[1] == N and z.shape[2] == D)
     assert(log_q_z.shape[0] == 1 and log_q_z.shape[1] == N)
+    log_q_z_inv = nf.log_prob(z)
+    assert(np.sum(np.square(log_q_z.detach().numpy() - log_q_z_inv.detach().numpy())) < 1e-2)
     
     nf = NormFlow(D, 'coupling', True, 2, 2, 20, ToSimplex)
     assert(issubclass(type(nf.bijectors[0]), RealNVP))
@@ -86,6 +88,12 @@ def test_NormFlow():
     assert(issubclass(type(nf.bijectors[6]), RealNVP))
     assert(issubclass(type(nf.bijectors[7]), BatchNorm))
     assert(issubclass(type(nf.bijectors[8]), ToSimplex))
+
+    nf = NormFlow(D, 'coupling', False, 2, 2, 20)
+    assert(issubclass(type(nf.bijectors[0]), RealNVP))
+    z, log_q_z = nf(N)
+    log_q_z_inv = nf.log_prob(z)
+    assert(np.sum(np.square(log_q_z.detach().numpy() - log_q_z_inv.detach().numpy())) < 1e-2)
 
     return None
 
@@ -102,6 +110,9 @@ def test_ConditionedNormFlow():
     z, log_q_z = cnf(eta, N=N)
     assert(z.shape[0] == M and z.shape[1] == N and z.shape[2] == D)
     assert(log_q_z.shape[0] == M and z.shape[1] == N)
+
+    log_q_z_inv = cnf.log_prob(z, eta)
+    assert(np.sum(np.square(log_q_z.detach().numpy() - log_q_z_inv.detach().numpy())) < 1e-2)
 
     return None
 
