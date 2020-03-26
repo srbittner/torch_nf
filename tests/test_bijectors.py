@@ -60,22 +60,25 @@ def test_RealNVP():
     real_nvp = RealNVP(D, num_layers, num_units)
     D_theta = real_nvp.count_num_params()
 
-    M = 20
-    N = 50
-    params = torch.tensor(np.random.normal(0., 1., (M, D_theta)))
+    M = 10
+    N = 5
+    np.random.seed(0)
+    torch.manual_seed(0)
+    params = torch.tensor(np.random.normal(0., 0.1, (M, D_theta)))
     z_in = torch.tensor(np.random.normal(0., 1., (M, N, D)))
-    z, log_det, params = real_nvp(z_in, params)
+    z, log_det = real_nvp(z_in, params)
     assert(z.shape[0] == M and z.shape[1] == N and z.shape[2] == D)
     assert(log_det.shape[0] == M and log_det.shape[1] == N)
-    assert(params.shape[0] == M and params.shape[1] == 0)
     assert(torch.eq(z[:,:,:D//2], z_in[:,:,:D//2]).all())
     assert(not torch.eq(z[:,:,D//2:], z_in[:,:,D//2:]).all())
+
+    z_inv, log_det_inv = real_nvp.inverse(z, params)
+    assert(np.sum((z_in.numpy() - z_inv.numpy())**2) < 1e-2)
 
     real_nvp = RealNVP(D, num_layers, num_units, transform_upper=False)
     D_extra = 10
     params = torch.tensor(np.random.normal(0., 1., (M, D_theta+D_extra)))
-    z, log_det, params = real_nvp(z_in, params)
-    assert(params.shape[0] == M and params.shape[1] == D_extra)
+    z, log_det = real_nvp(z_in, params)
     assert(not torch.eq(z[:,:,:D//2], z_in[:,:,:D//2]).all())
     assert(torch.eq(z[:,:,D//2:], z_in[:,:,D//2:]).all())
 
@@ -124,6 +127,10 @@ def test_BatchNorm():
 
     z2, log_det = batch_norm(z_in, use_last=True)
     assert(np.sum((z2.numpy() - z_true.numpy())**2) <  1e-2)
+
+    z_inv, log_det_inv = batch_norm.inverse(z)
+    assert(np.isclose(log_det.numpy(), log_det_inv.numpy()).all())
+    assert(np.sum((z_inv.numpy() - z_in.numpy())**2) <  1e-2)
 
     return None
 

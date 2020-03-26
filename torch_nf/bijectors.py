@@ -157,7 +157,31 @@ class RealNVP(Bijector):
             z = torch.cat([z2, z1], dim=2)
 
         log_det = torch.sum(s, dim=2)
-        return z, log_det, params
+        return z, log_det
+
+    def inverse(self, z, params):
+        if self.transform_upper:
+            z1, z2 = z[:, :, : self.D // 2], z[:, :, self.D // 2 :]
+        else:
+            z2, z1 = z[:, :, : self.D // 2], z[:, :, self.D // 2 :]
+        # upper | lower
+        t, s, params = self._t_s_layer(z1, z1, params, self.D // 2, self.num_units)
+        for i in range(self.num_layers - 1):
+            t, s, params = self._t_s_layer(t, s, params, self.num_units, self.num_units)
+        t, s, params = self._t_s_layer(
+            t, s, params, self.num_units, self.D // 2, relu=False
+        )
+        z2 = (z2 - t) / torch.exp(s)
+
+        if self.transform_upper:
+            z = torch.cat([z1, z2], dim=2)
+        else:
+            z = torch.cat([z2, z1], dim=2)
+
+        log_det = torch.sum(s, dim=2)
+        return z, log_det
+
+
 
     def _t_s_layer(self, x_t, x_s, params, D_in, D_out, relu=True):
         """One layer of the neural network for shift and scale operations t and s. 
@@ -175,33 +199,33 @@ class RealNVP(Bijector):
         :param relu: Pass linear network operation through relu nonlinearity, default True.
         :type D_out: bool, optional
         """
-        param_ind = 0
-        _num_param_weight = D_in * D_out
-        t_weight = params[:, param_ind : (param_ind + _num_param_weight)].view(
+        idx = 0
+        num_ps = D_in * D_out
+        t_weight = params[:, idx : (idx + num_ps)].view(
             -1, D_in, D_out
         )
-        param_ind += _num_param_weight
-        s_weight = params[:, param_ind : (param_ind + _num_param_weight)].view(
+        idx += num_ps
+        s_weight = params[:, idx : (idx + num_ps)].view(
             -1, D_in, D_out
         )
-        param_ind += _num_param_weight
+        idx += num_ps
 
-        _num_param_bias = D_out
-        t_bias = params[:, param_ind : (param_ind + _num_param_bias)].view(
-            -1, 1, _num_param_bias
+        num_ps = D_out
+        t_bias = params[:, idx : (idx + num_ps)].view(
+            -1, 1, num_ps
         )
-        param_ind += _num_param_bias
-        s_bias = params[:, param_ind : (param_ind + _num_param_bias)].view(
-            -1, 1, _num_param_bias
+        idx += num_ps
+        s_bias = params[:, idx : (idx + num_ps)].view(
+            -1, 1, num_ps
         )
-        param_ind += _num_param_bias
+        idx += num_ps
 
         t = torch.matmul(x_t, t_weight) + t_bias
         s = torch.matmul(x_s, s_weight) + s_bias
         if relu:
             t = F.relu(t)
             s = F.relu(s)
-        return t, s, params[:, param_ind:]
+        return t, s, params[:, idx:]
 
     def count_num_params(self,):
         """Return the number of parameters for the bijector.
@@ -315,6 +339,14 @@ class BatchNorm(Bijector):
         log_det = -torch.sum(torch.log(alpha))
         return z_norm, log_det
 
+    def inverse(self, z):
+        alpha = self.__last_alpha
+        mean = self.__last_mean
+        z = z * alpha
+        z = z + mean
+        log_det = -torch.sum(torch.log(alpha))
+        return z, log_det
+
 
 class ToSimplex(Bijector):
     """Maps tensor in (M,N,D-1) to D-simplex.
@@ -335,14 +367,27 @@ class ToSimplex(Bijector):
         :param z: Input to the bijector (M, N, D).
         :type z: torch.tensor
         """
+        EPS = 1e-10
         ex = torch.exp(z)
         sum_ex = torch.sum(ex, dim=2)
+        dbg_check(ex, 'ex')
+        dbg_check(sum_ex, 'sum_ex')
         den = sum_ex + 1.0
         log_det = (
-            torch.log(1.0 - (sum_ex / den))
+            torch.log(1.0 - (sum_ex / den) + EPS)
             - self.D * torch.log(den)
             + torch.sum(z, axis=2)
         )
         z = torch.cat((ex / den[:, :, None], 1.0 / den[:, :, None]), axis=2)
 
         return z, log_det
+
+def dbg_check(tensor, name):
+    num_elems = 1
+    for dim in tensor.shape:
+        num_elems *= dim
+    num_infs = torch.sum(torch.isinf(tensor)).item()
+    num_nans = torch.sum(torch.isnan(tensor)).item()
+
+    print(name, "infs %d/%d" % (num_infs, num_elems), "nans %d/%d" % (num_nans, num_elems))
+    return None
