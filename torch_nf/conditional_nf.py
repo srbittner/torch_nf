@@ -5,6 +5,7 @@ from torch_nf.error_formatters import format_type_err_msg
 from torch_nf.bijectors import RealNVP, BatchNorm
 from collections import OrderedDict
 
+
 class ConditionedNormFlow(torch.nn.Module):
     def __init__(self, nf, D_x, hidden_layers):
         super().__init__()
@@ -13,23 +14,17 @@ class ConditionedNormFlow(torch.nn.Module):
         self.D_params = nf.D_params
         self.hidden_layers = hidden_layers
 
+        hl = hidden_layers
+
         layers = [
             ("linear1", torch.nn.Linear(D_x, hidden_layers[0])),
             ("relu1", torch.nn.ReLU()),
         ]
-        for i in range(1, len(hidden_layers)):
-            layers.append(
-                (
-                    "linear%d" % (i + 1),
-                    torch.nn.Linear(hidden_layers[i - 1], hidden_layers[i]),
-                )
-            )
+        for i in range(1, len(hl)):
+            layers.append(("linear%d" % (i + 1), torch.nn.Linear(hl[i - 1], hl[i]),))
             layers.append(("relu%d" % (i + 1), torch.nn.ReLU()))
         layers.append(
-            (
-                "linear%d" % (len(hidden_layers) + 1),
-                torch.nn.Linear(hidden_layers[-1], self.D_params),
-            )
+            ("linear%d" % (len(hl) + 1), torch.nn.Linear(hl[-1], self.D_params),)
         )
 
         layer_dict = OrderedDict(layers)
@@ -41,7 +36,7 @@ class ConditionedNormFlow(torch.nn.Module):
 
     @nf.setter
     def nf(self, val):
-        if (type(val) is not NormFlow):
+        if type(val) is not NormFlow:
             raise TypeError(format_type_err_msg(self, "nf", val, NormFlow))
         self.__nf = val
 
@@ -51,12 +46,11 @@ class ConditionedNormFlow(torch.nn.Module):
 
     @D_x.setter
     def D_x(self, val):
-        if (type(val) is not int):
+        if type(val) is not int:
             raise TypeError(format_type_err_msg(self, "D_x", val, int))
         elif val < 1:
             raise ValueError("D_x %d must be greater than 0." % val)
         self.__D_x = val
-
 
     @property
     def D_params(self,):
@@ -64,12 +58,11 @@ class ConditionedNormFlow(torch.nn.Module):
 
     @D_params.setter
     def D_params(self, val):
-        if (type(val) is not int):
+        if type(val) is not int:
             raise TypeError(format_type_err_msg(self, "D_params", val, int))
         elif val < 1:
             raise ValueError("D_params %d must be greater than 0." % val)
         self.__D_params = val
-
 
     @property
     def hidden_layers(self,):
@@ -77,11 +70,13 @@ class ConditionedNormFlow(torch.nn.Module):
 
     @hidden_layers.setter
     def hidden_layers(self, val):
-        if (type(val) is not list):
+        if type(val) is not list:
             raise TypeError(format_type_err_msg(self, "hidden_layers", val, list))
         for i, num_units in enumerate(val):
             if type(num_units) is not int:
-                raise TypeError(format_type_err_msg(self, "hidden_layers[%d]" % i, val, int))
+                raise TypeError(
+                    format_type_err_msg(self, "hidden_layers[%d]" % i, val, int)
+                )
             if num_units < 1:
                 raise ValueError("Hidden unit counts must be positive.")
         self.__hidden_layers = val
@@ -121,8 +116,9 @@ class NormFlow(object):
             self.bijectors.append(
                 RealNVP(D, num_layers, num_units, transform_upper=False)
             )
-            if i < num_stages - 1:
-                self.bijectors.append(BatchNorm(D))
+            self.bijectors.append(BatchNorm(D))
+            # if i < num_stages - 1:
+            #    self.bijectors.append(BatchNorm(D))
 
         if support_layer is not None:
             self.bijectors.append(support_layer(D))
@@ -233,20 +229,58 @@ class NormFlow(object):
         )
         log_q_z = torch.tensor(log_q_z)
 
+        idx = 0 # parameter index
         for i, bijector in enumerate(self.bijectors):
             if bijector.name == "BatchNorm":
                 z, log_det = bijector(z, use_last=(M == 1))
             else:
-                if bijector.count_num_params() > 0:
-                    z, log_det, params = bijector(z, params)
+                num_ps = bijector.count_num_params() # number of parameters for bijector
+                if num_ps > 0:
+                    z, log_det = bijector(z, params[:, idx:(idx+num_ps)])
+                    idx += num_ps
                 else:
                     z, log_det = bijector(z)
             log_q_z = log_q_z - log_det
-
         return z, log_q_z
+
+    def inverse(self, z, params):
+        num_bijectors = len(self.bijectors)
+        idx = self.count_num_params()
+        sum_log_det = 0.0
+        for i in range(num_bijectors + 1, -1, -1):
+            bijector = self.bijectors[i]
+            num_ps = bijector.count_num_params()
+            if num_ps > 0:
+                z, log_det = bijector.inverse(z, params[:, (idx-num_ps):idx])
+                idx -= num_ps
+            else:
+                z, log_det = bijector.inverse(z)
+            sum_log_det += log_det
+        return z, sum_log_det
+
+    def log_prob(self, z, params):
+        z, sum_log_det = self.inverse(z, params)
+        log_q_z = torch.log(
+            torch.prod(
+                torch.exp((-torch.square(z)) / 2.0) / np.sqrt(2.0 * np.pi), axis=2
+            )
+        )
+        return log_q_z
 
     def count_num_params(self,):
         self.D_params = 0
         for bijector in self.bijectors:
             self.D_params += bijector.count_num_params()
 
+
+def dbg_check(tensor, name):
+    num_elems = 1
+    for dim in tensor.shape:
+        num_elems *= dim
+    num_infs = torch.sum(torch.isinf(tensor)).item()
+    num_nans = torch.sum(torch.isnan(tensor)).item()
+
+    print(
+        name, "infs %d/%d" % (num_infs, num_elems), "nans %d/%d" % (num_nans, num_elems)
+    )
+    return None

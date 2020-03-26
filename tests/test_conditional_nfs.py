@@ -84,7 +84,8 @@ def test_NormFlow():
     assert(issubclass(type(nf.bijectors[4]), RealNVP))
     assert(issubclass(type(nf.bijectors[5]), BatchNorm))
     assert(issubclass(type(nf.bijectors[6]), RealNVP))
-    assert(issubclass(type(nf.bijectors[7]), ToSimplex))
+    assert(issubclass(type(nf.bijectors[7]), BatchNorm))
+    assert(issubclass(type(nf.bijectors[8]), ToSimplex))
 
     return None
 
