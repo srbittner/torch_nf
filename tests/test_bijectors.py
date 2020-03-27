@@ -2,7 +2,7 @@
 
 import torch
 import numpy as np
-from torch_nf.bijectors import Bijector, RealNVP, BatchNorm, ToSimplex
+from torch_nf.bijectors import Bijector, RealNVP, BatchNorm, ToSimplex, Affine
 from pytest import raises
 
 
@@ -72,7 +72,7 @@ def test_RealNVP():
     assert(torch.eq(z[:,:,:D//2], z_in[:,:,:D//2]).all())
     assert(not torch.eq(z[:,:,D//2:], z_in[:,:,D//2:]).all())
 
-    z_inv, log_det_inv = real_nvp.inverse(z, params)
+    z_inv, log_det_inv = real_nvp.inverse_and_log_det(z, params)
     assert(np.sum((z_in.numpy() - z_inv.numpy())**2) < 1e-2)
 
     real_nvp = RealNVP(D, num_layers, num_units, transform_upper=False)
@@ -83,6 +83,34 @@ def test_RealNVP():
     assert(torch.eq(z[:,:,D//2:], z_in[:,:,D//2:]).all())
 
     return None
+
+def test_Affine():
+    D = 4
+    affine = Affine(D)
+    assert affine.D == D
+
+    M = 20
+    N = 50
+    D_theta = affine.count_num_params()
+    params = torch.tensor(np.random.normal(0., 1., (M, D_theta))).float()
+    z_in = torch.tensor(np.random.normal(0., 1., (M, N, D))).float()
+
+    z, log_det = affine.forward_and_log_det(z_in, params)
+
+    log_scale = params[:,:D]
+    shift = params[:,D:]
+    z_true = z_in * torch.exp(log_scale[:,None,:]) + shift[:,None,:]
+    log_det_true = torch.sum(log_scale, dim=1, keepdim=True)
+    assert(np.sum((z.numpy() - z_true.numpy())**2) < 1e-10)
+    assert(np.sum((log_det.numpy() - log_det_true.numpy())**2) < 1e-10)
+    
+    z_inv, log_det_inv = affine.inverse_and_log_det(z, params)
+    assert(np.sum((z_in.numpy() - z_inv.numpy())**2) < 1e-10)
+    assert(np.sum((log_det.numpy() - log_det_inv.numpy())**2) < 1e-10)
+    
+    return None
+
+
 
 
 def test_BatchNorm():
@@ -128,7 +156,7 @@ def test_BatchNorm():
     z2, log_det = batch_norm(z_in, use_last=True)
     assert(np.sum((z2.numpy() - z_true.numpy())**2) <  1e-2)
 
-    z_inv, log_det_inv = batch_norm.inverse(z)
+    z_inv, log_det_inv = batch_norm.inverse_and_log_det(z)
     assert(np.isclose(log_det.numpy(), log_det_inv.numpy()).all())
     assert(np.sum((z_inv.numpy() - z_in.numpy())**2) <  1e-2)
 
@@ -160,7 +188,8 @@ def test_ToSimplex():
 
 
 if __name__ == "__main__":
-    test_Bijector_init()
-    test_RealNVP()
-    test_BatchNorm()
-    test_ToSimplex()
+    #test_Bijector_init()
+    #test_RealNVP()
+    test_Affine()
+    #test_BatchNorm()
+    #test_ToSimplex()

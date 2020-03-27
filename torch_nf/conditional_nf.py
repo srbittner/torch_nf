@@ -113,17 +113,21 @@ class NormFlow(object):
         self.support_layer = support_layer
 
         self.bijectors = []
-        for i in range(num_stages):
-            self.bijectors.append(
-                RealNVP(D, num_layers, num_units, transform_upper=True)
-            )
-            self.bijectors.append(BatchNorm(D))
-            self.bijectors.append(
-                RealNVP(D, num_layers, num_units, transform_upper=False)
-            )
-            self.bijectors.append(BatchNorm(D))
-            # if i < num_stages - 1:
-            #    self.bijectors.append(BatchNorm(D))
+
+        if arch_type == 'coupling':
+            for i in range(num_stages):
+                self.bijectors.append(
+                    RealNVP(D, num_layers, num_units, transform_upper=True)
+                )
+                self.bijectors.append(BatchNorm(D))
+                self.bijectors.append(
+                    RealNVP(D, num_layers, num_units, transform_upper=False)
+                )
+                self.bijectors.append(BatchNorm(D))
+                # if i < num_stages - 1:
+                #    self.bijectors.append(BatchNorm(D))
+        elif arch_type == 'affine':
+            self.bijectors.append(Affine(D))
 
         if support_layer is not None:
             self.bijectors.append(support_layer(D))
@@ -153,11 +157,11 @@ class NormFlow(object):
 
     @arch_type.setter
     def arch_type(self, val):
-        arch_types = ["coupling"]
+        arch_types = ["coupling", "affine"]
         if type(val) is not str:
             raise TypeError(format_type_err_msg(self, "arch_type", val, str))
         if val not in arch_types:
-            raise ValueError('NormalizingFlow arch_type must be "coupling".')
+            raise ValueError('NormalizingFlow arch_type must be "coupling" or "affine".')
         self.__arch_type = val
 
     @property
@@ -248,7 +252,7 @@ class NormFlow(object):
             log_q_z = log_q_z - log_det
         return z, log_q_z
 
-    def inverse(self, z, params):
+    def inverse_and_log_det(self, z, params):
         num_bijectors = len(self.bijectors)
         z_size = z.size()
         idx = self.D_params
@@ -257,18 +261,18 @@ class NormFlow(object):
             bijector = self.bijectors[i]
             num_ps = bijector.count_num_params()
             if num_ps > 0:
-                z, log_det = bijector.inverse(z, params[:, (idx-num_ps):idx])
+                z, log_det = bijector.inverse_and_log_det(z, params[:, (idx-num_ps):idx])
                 idx -= num_ps
             else:
-                z, log_det = bijector.inverse(z)
+                z, log_det = bijector.inverse_and_log_det(z)
             sum_log_det += log_det
         return z, sum_log_det
 
     def log_prob(self, z, params=None):
         if not self.conditioner:
-            z, sum_log_det = self.inverse(z, self.params)
+            z, sum_log_det = self.inverse_and_log_det(z, self.params)
         else:
-            z, sum_log_det = self.inverse(z, params)
+            z, sum_log_det = self.inverse_and_log_det(z, params)
         log_q_z = torch.log(
             torch.prod(
                 torch.exp(-(z**2) / 2.0) / np.sqrt(2.0 * np.pi), axis=2

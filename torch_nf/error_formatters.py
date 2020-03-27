@@ -22,3 +22,13 @@ def format_type_err_msg(obj, arg_name: str, arg, correct_type) -> str:
         correct_type.__name__,
         arg_type.__name__,
     )
+
+def dbg_check(tensor, name):
+    num_elems = 1
+    for dim in tensor.shape:
+        num_elems *= dim
+    num_infs = torch.sum(torch.isinf(tensor)).item()
+    num_nans = torch.sum(torch.isnan(tensor)).item()
+
+    print(name, "infs %d/%d" % (num_infs, num_elems), "nans %d/%d" % (num_nans, num_elems))
+    return num_nans or num_infs

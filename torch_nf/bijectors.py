@@ -37,8 +37,23 @@ class Bijector(object):
         should match the leading dimension of parameters params.  The second
         batch dimension should be the number of samples per parameterization N.
         The earliest elements of the second dimension of z shall be used to 
-        parameterize this bijection. The left-over parameters are returned in
-        "params" for use in subsequent bijections.
+        parameterize this bijection.
+
+        :param z: Input to the bijector (M, N, D).
+        :type z: torch.tensor
+        :param params: Parameterization of the bijector (M, >|theta|).
+        :type params: torch.tensor
+        """
+        raise NotImplementedError()
+
+    def inverse_and_log_det(self, z, params):
+        """Run the bijector backwards and compute the log det jac.
+
+        The input z should have two batch dimensions.  The first, of size M,
+        should match the leading dimension of parameters params.  The second
+        batch dimension should be the number of samples per parameterization N.
+        The earliest elements of the second dimension of z shall be used to 
+        parameterize this bijection. 
 
         :param z: Input to the bijector (M, N, D).
         :type z: torch.tensor
@@ -159,7 +174,7 @@ class RealNVP(Bijector):
         log_det = torch.sum(s, dim=2)
         return z, log_det
 
-    def inverse(self, z, params):
+    def inverse_and_log_det(self, z, params):
         if self.transform_upper:
             z1, z2 = z[:, :, : self.D // 2], z[:, :, self.D // 2 :]
         else:
@@ -240,6 +255,57 @@ class RealNVP(Bijector):
             + (self.num_layers - 1) * (self.num_units + 1) * self.num_units
         )
 
+class Affine(Bijector):
+    """Affine bijector.
+
+    A scale and shift of each dimension.
+    :param D: Dimensionality of the bijection.
+    :type D: int
+    """
+    def __init__(self, D):
+        super().__init__(D)
+        self.name = "Affine"
+
+    def forward_and_log_det(self, z, params):
+        idx = 0
+
+        num_ps = self.D
+        scale = torch.exp(params[:,idx:(idx+num_ps)])
+        idx += num_ps
+
+        num_ps = self.D
+        shift = params[:,idx:(idx+num_ps)]
+        idx += num_ps
+
+        scale = scale[:,None,:] 
+        shift = shift[:,None,:] 
+
+        z = scale*z + shift
+        log_det = torch.sum(torch.log(scale), axis=2)
+
+        return z, log_det
+
+    def inverse_and_log_det(self, z, params):
+        idx = 0
+
+        num_ps = self.D
+        scale = torch.exp(params[:,idx:(idx+num_ps)])
+        idx += num_ps
+
+        num_ps = self.D
+        shift = params[:,idx:(idx+num_ps)]
+        idx += num_ps
+
+        scale = scale[:,None,:] 
+        shift = shift[:,None,:] 
+
+        z = (z - shift)/scale
+        log_det = torch.sum(torch.log(scale), axis=2)
+
+        return z, log_det
+
+    def count_num_params(self,):
+        return 2*self.D
 
 class BatchNorm(Bijector):
     """Batch Norm bijector.
@@ -339,7 +405,7 @@ class BatchNorm(Bijector):
         log_det = -torch.sum(torch.log(alpha))
         return z_norm, log_det
 
-    def inverse(self, z):
+    def inverse_and_log_det(self, z):
         alpha = self.__last_alpha
         mean = self.__last_mean
         z = z * alpha
@@ -370,8 +436,6 @@ class ToSimplex(Bijector):
         EPS = 1e-10
         ex = torch.exp(z)
         sum_ex = torch.sum(ex, dim=2)
-        dbg_check(ex, 'ex')
-        dbg_check(sum_ex, 'sum_ex')
         den = sum_ex + 1.0
         log_det = (
             torch.log(1.0 - (sum_ex / den) + EPS)

@@ -264,7 +264,8 @@ class Dirichlet(ExponentialFamily):
         :return: T(z) (M, N, D_eta).
         :rtype: torch.tensor
         """
-        log_z = torch.log(z)
+        EPS = 1e-10
+        log_z = torch.log(z + EPS)
         h_z = torch.sum(log_z, dim=2, keepdim=True)
         return torch.cat((log_z, h_z), axis=2)
 
