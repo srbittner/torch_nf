@@ -1,5 +1,5 @@
 """ Format strings for epi package errors. """
-
+import torch
 
 def format_type_err_msg(obj, arg_name: str, arg, correct_type) -> str:
     """Formats error message for incorrect types.

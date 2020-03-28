@@ -2,8 +2,9 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from torch_nf.error_formatters import format_type_err_msg
-from torch_nf.bijectors import RealNVP, BatchNorm
+from torch_nf.bijectors import RealNVP, BatchNorm, Affine
 from collections import OrderedDict
+import time
 
 
 class ConditionedNormFlow(torch.nn.Module):
@@ -83,8 +84,8 @@ class ConditionedNormFlow(torch.nn.Module):
 
     def __call__(self, x, N=100):
         params = self.param_net(x)
-        z, log_det = self.nf(N=N, params=params)
-        return z, log_det
+        z, log_q_z = self.nf(N=N, params=params)
+        return z, log_q_z
 
     def log_prob(self, z, x):
         params = self.param_net(x)
@@ -100,7 +101,7 @@ class NormFlow(object):
         conditioner=False,
         num_stages=1,
         num_layers=2,
-        num_units=None,
+        num_units=15,
         support_layer=None,
     ):
         super().__init__()
@@ -130,7 +131,7 @@ class NormFlow(object):
             self.bijectors.append(Affine(D))
 
         if support_layer is not None:
-            self.bijectors.append(support_layer(D))
+            self.bijectors.append(support_layer)
 
         self.count_num_params()
 
@@ -273,11 +274,8 @@ class NormFlow(object):
             z, sum_log_det = self.inverse_and_log_det(z, self.params)
         else:
             z, sum_log_det = self.inverse_and_log_det(z, params)
-        log_q_z = torch.log(
-            torch.prod(
-                torch.exp(-(z**2) / 2.0) / np.sqrt(2.0 * np.pi), axis=2
-            )
-        )
+        log_q_z = -torch.sum(z**2, axis=2)/2. - self.D*np.sqrt(2.0 * np.pi)
+        log_q_z = torch.clamp(log_q_z, -1e10, 1e10)
         return log_q_z - sum_log_det
 
     def count_num_params(self,):
