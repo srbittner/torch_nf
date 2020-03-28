@@ -70,6 +70,7 @@ class Bijector(object):
         """
         return 0
 
+
 class RealNVP(Bijector):
     """RealNVP bijector.
 
@@ -196,8 +197,6 @@ class RealNVP(Bijector):
         log_det = torch.sum(s, dim=2)
         return z, log_det
 
-
-
     def _t_s_layer(self, x_t, x_s, params, D_in, D_out, relu=True):
         """One layer of the neural network for shift and scale operations t and s. 
 
@@ -216,23 +215,15 @@ class RealNVP(Bijector):
         """
         idx = 0
         num_ps = D_in * D_out
-        t_weight = params[:, idx : (idx + num_ps)].view(
-            -1, D_in, D_out
-        )
+        t_weight = params[:, idx : (idx + num_ps)].view(-1, D_in, D_out)
         idx += num_ps
-        s_weight = params[:, idx : (idx + num_ps)].view(
-            -1, D_in, D_out
-        )
+        s_weight = params[:, idx : (idx + num_ps)].view(-1, D_in, D_out)
         idx += num_ps
 
         num_ps = D_out
-        t_bias = params[:, idx : (idx + num_ps)].view(
-            -1, 1, num_ps
-        )
+        t_bias = params[:, idx : (idx + num_ps)].view(-1, 1, num_ps)
         idx += num_ps
-        s_bias = params[:, idx : (idx + num_ps)].view(
-            -1, 1, num_ps
-        )
+        s_bias = params[:, idx : (idx + num_ps)].view(-1, 1, num_ps)
         idx += num_ps
 
         t = torch.matmul(x_t, t_weight) + t_bias
@@ -255,6 +246,7 @@ class RealNVP(Bijector):
             + (self.num_layers - 1) * (self.num_units + 1) * self.num_units
         )
 
+
 class Affine(Bijector):
     """Affine bijector.
 
@@ -262,26 +254,28 @@ class Affine(Bijector):
     :param D: Dimensionality of the bijection.
     :type D: int
     """
+
     def __init__(self, D):
         super().__init__(D)
         self.name = "Affine"
+        self._eps = 1e-6
 
     def forward_and_log_det(self, z, params):
         idx = 0
 
         num_ps = self.D
-        scale = torch.exp(params[:,idx:(idx+num_ps)])
+        scale = torch.exp(params[:, idx : (idx + num_ps)])
         idx += num_ps
 
         num_ps = self.D
-        shift = params[:,idx:(idx+num_ps)]
+        shift = params[:, idx : (idx + num_ps)]
         idx += num_ps
 
-        scale = scale[:,None,:] 
-        shift = shift[:,None,:] 
+        scale = scale[:, None, :]
+        shift = shift[:, None, :]
 
-        z = scale*z + shift
-        log_det = torch.sum(torch.log(scale), axis=2)
+        z = scale * z + shift
+        log_det = torch.sum(torch.log(scale + self._eps), axis=2)
 
         return z, log_det
 
@@ -289,23 +283,24 @@ class Affine(Bijector):
         idx = 0
 
         num_ps = self.D
-        scale = torch.exp(params[:,idx:(idx+num_ps)])
+        scale = torch.exp(params[:, idx : (idx + num_ps)])
         idx += num_ps
 
         num_ps = self.D
-        shift = params[:,idx:(idx+num_ps)]
+        shift = params[:, idx : (idx + num_ps)]
         idx += num_ps
 
-        scale = scale[:,None,:] 
-        shift = shift[:,None,:] 
+        scale = scale[:, None, :]
+        shift = shift[:, None, :]
 
-        z = (z - shift)/scale
-        log_det = torch.sum(torch.log(scale), axis=2)
+        z = (z - shift) / scale
+        log_det = torch.sum(torch.log(scale + self._eps), axis=2)
 
         return z, log_det
 
     def count_num_params(self,):
-        return 2*self.D
+        return 2 * self.D
+
 
 class BatchNorm(Bijector):
     """Batch Norm bijector.
@@ -322,6 +317,7 @@ class BatchNorm(Bijector):
     :param eps: Eps parameter of batch norm, default 1e-5.
     :type eps: float, optional.
     """
+
     def __init__(self, D, momentum=0.1, eps=1e-5):
         super().__init__(D)
         self.name = "BatchNorm"
@@ -394,7 +390,7 @@ class BatchNorm(Bijector):
             z_norm = self.batch_norm(z_vec)
             z_norm_var = torch.var(z_norm, dim=0)
             alpha = torch.sqrt(z_var) / torch.sqrt(z_norm_var)
-            zn_alpha = z_norm*alpha[None, :]
+            zn_alpha = z_norm * alpha[None, :]
             mean = torch.mean(z_vec - zn_alpha, dim=0)
 
             z_norm = z_norm.view(z_size[0], z_size[1], self.D)
@@ -414,12 +410,137 @@ class BatchNorm(Bijector):
         return z, log_det
 
 
+class ToInterval(Bijector):
+    """Maps tensor in (M,N,D-1) to interval.
+    :param D: Dimensionality of the bijection.
+    :type D: int
+    :param lb: Lower bound of interval.
+    :type lb: float
+    :param ub: Upper bound of interval.
+    :type ub: float
+
+    """
+
+    def __init__(self, D, lb, ub):
+        super().__init__(D)
+        self.name = "ToInterval"
+        self.lb = lb
+        self.ub = ub
+        self._eps = 1e-6
+
+        if self.lb.shape[0] != self.ub.shape[0]:
+            raise ValueError("Lower and upper bounds must be same length.")
+
+        for lb_i, ub_i in zip(self.lb, self.ub):
+            if lb_i > ub_i:
+                raise ValueError("Lower bound %.2E > upper bound %.2E." % (lb_i, ub_i))
+
+        tanh_flg, softplus_flg = self.D * [0], self.D * [0]
+        tanh_m, tanh_c = self.D * [1.0], self.D * [0.0]
+        softplus_m, softplus_c = self.D * [1.0], self.D * [0.0]
+
+        for i in range(self.D):
+            lb_i, ub_i = self.lb[i], self.ub[i]
+            has_lb = not np.isneginf(lb_i)
+            has_ub = not np.isposinf(ub_i)
+            if has_lb and has_ub:
+                tanh_flg[i] = 1
+                tanh_m[i] = (ub_i - lb_i) / 2.0
+                tanh_c[i] = (ub_i + lb_i) / 2.0
+            elif has_lb:
+                softplus_flg[i] = 1
+                softplus_m[i] = 1.0
+                softplus_c[i] = lb_i
+            elif has_ub:
+                softplus_flg[i] = 1
+                softplus_m[i] = -1.0
+                softplus_c[i] = ub_i
+
+        self.tanh_flg = torch.tensor(tanh_flg).float()[None, None, :]
+        self.softplus_flg = torch.tensor(softplus_flg).float()[None, None, :]
+        self.tanh_m = torch.tensor(tanh_m).float()[None, None, :]
+        self.tanh_c = torch.tensor(tanh_c).float()[None, None, :]
+        self.softplus_m = torch.tensor(softplus_m).float()[None, None, :]
+        self.softplus_c = torch.tensor(softplus_c).float()[None, None, :]
+
+    @property
+    def lb(self,):
+        return self.__lb
+
+    @lb.setter
+    def lb(self, val):
+        if type(val) not in [list, np.ndarray]:
+            raise TypeError(format_type_err_msg(self, "lb", val, np.ndarray))
+        if type(val) is list:
+            val = np.array(val)
+        self.__lb = val
+
+    @property
+    def ub(self,):
+        return self.__ub
+
+    @ub.setter
+    def ub(self, val):
+        if type(val) not in [list, np.ndarray]:
+            raise TypeError(format_type_err_msg(self, "ub", val, np.ndarray))
+        if type(val) is list:
+            val = np.array(val)
+        self.__ub = val
+
+    def __call__(self, z):
+        return self.forward_and_log_det(z)
+
+    def forward_and_log_det(self, z):
+        tanh_z = torch.tanh(z)
+        out = self.tanh_m * tanh_z + self.tanh_c
+        tanh_ldj = torch.sum(
+            self.tanh_flg
+            * (
+                torch.log(self.tanh_m + self._eps)
+                + torch.log(1.0 - (tanh_z ** 2) + self._eps)
+            ),
+            axis=2,
+        )
+        z = self.tanh_flg * out + (1 - self.tanh_flg) * z
+
+        out = self.softplus_m * F.softplus(z) + self.softplus_c
+        softplus_ldj = torch.sum(self.softplus_flg * F.logsigmoid(z), axis=2,)
+
+        z = self.softplus_flg * out + (1 - self.softplus_flg) * z
+        ldj = tanh_ldj + softplus_ldj
+        return z, ldj
+
+    def inverse_and_log_det(self, z):
+        softplus_inv = torch.log(
+            torch.exp(self.softplus_flg * (z - self.softplus_c) / self.softplus_m)
+            - 1
+            + self._eps
+        )
+        z = self.softplus_flg * softplus_inv + (1 - self.softplus_flg) * z
+        
+        softplus_ldj = torch.sum(self.softplus_flg * F.logsigmoid(z), axis=2,)
+
+        tanh_inv = torch_atanh(self.tanh_flg * (z - self.tanh_c) / self.tanh_m)
+        z = self.tanh_flg * tanh_inv + (1 - self.tanh_flg) * z
+        tanh_z = torch.tanh(z)
+
+        tanh_ldj = torch.sum(
+            self.tanh_flg
+            * (torch.log(self.tanh_m + self._eps) + torch.log(1.0 - (tanh_z ** 2) + self._eps)),
+            axis=2,
+        )
+
+        log_det = tanh_ldj + softplus_ldj
+        return z, log_det
+
+
 class ToSimplex(Bijector):
     """Maps tensor in (M,N,D-1) to D-simplex.
 
     :param D: Dimensionality of the bijection.
     :type D: int
     """
+
     def __init__(self, D):
         super().__init__(D)
         self.name = "ToSimplex"
@@ -446,6 +567,9 @@ class ToSimplex(Bijector):
 
         return z, log_det
 
+def torch_atanh(x):
+    return 0.5*torch.log((1+x)/(1-x))
+
 def dbg_check(tensor, name):
     num_elems = 1
     for dim in tensor.shape:
@@ -453,5 +577,7 @@ def dbg_check(tensor, name):
     num_infs = torch.sum(torch.isinf(tensor)).item()
     num_nans = torch.sum(torch.isnan(tensor)).item()
 
-    print(name, "infs %d/%d" % (num_infs, num_elems), "nans %d/%d" % (num_nans, num_elems))
+    print(
+        name, "infs %d/%d" % (num_infs, num_elems), "nans %d/%d" % (num_nans, num_elems)
+    )
     return None
