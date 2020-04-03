@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
-from torch_nf.error_formatters import format_type_err_msg
+from torch_nf.error_formatters import format_type_err_msg, dbg_check
 
 
 class Bijector(object):
@@ -154,16 +154,22 @@ class RealNVP(Bijector):
         :param params: Parameterization of the bijector (M, >|theta|).
         :type params: torch.tensor
         """
+        half_idx = self.D//2
+        D_in, D_out = half_idx, half_idx
         if self.transform_upper:
-            z1, z2 = z[:, :, : self.D // 2], z[:, :, self.D // 2 :]
+            z1, z2 = z[:, :, : half_idx], z[:, :, half_idx :]
         else:
-            z2, z1 = z[:, :, : self.D // 2], z[:, :, self.D // 2 :]
+            z2, z1 = z[:, :, : half_idx], z[:, :, half_idx :]
+        if (self.D % 2 == 1):
+            D_in += (not self.transform_upper)
+            D_out += self.transform_upper
+
         # upper | lower
-        t, s, params = self._t_s_layer(z1, z1, params, self.D // 2, self.num_units)
+        t, s, params = self._t_s_layer(z1, z1, params, D_in, self.num_units)
         for i in range(self.num_layers - 1):
             t, s, params = self._t_s_layer(t, s, params, self.num_units, self.num_units)
         t, s, params = self._t_s_layer(
-            t, s, params, self.num_units, self.D // 2, relu=False
+            t, s, params, self.num_units, D_out, tanh=False
         )
         z2 = t + z2 * torch.exp(s)
 
@@ -173,19 +179,25 @@ class RealNVP(Bijector):
             z = torch.cat([z2, z1], dim=2)
 
         log_det = torch.sum(s, dim=2)
+
         return z, log_det
 
     def inverse_and_log_det(self, z, params):
+        half_idx = self.D//2
+        D_in, D_out = half_idx, half_idx
         if self.transform_upper:
             z1, z2 = z[:, :, : self.D // 2], z[:, :, self.D // 2 :]
         else:
             z2, z1 = z[:, :, : self.D // 2], z[:, :, self.D // 2 :]
+        if (self.D % 2 == 1):
+            D_in += (not self.transform_upper)
+            D_out += self.transform_upper
         # upper | lower
-        t, s, params = self._t_s_layer(z1, z1, params, self.D // 2, self.num_units)
+        t, s, params = self._t_s_layer(z1, z1, params, D_in, self.num_units)
         for i in range(self.num_layers - 1):
             t, s, params = self._t_s_layer(t, s, params, self.num_units, self.num_units)
         t, s, params = self._t_s_layer(
-            t, s, params, self.num_units, self.D // 2, relu=False
+            t, s, params, self.num_units, D_out, tanh=False
         )
         z2 = (z2 - t) / torch.exp(s)
 
@@ -195,9 +207,11 @@ class RealNVP(Bijector):
             z = torch.cat([z2, z1], dim=2)
 
         log_det = torch.sum(s, dim=2)
+        #dbg_check(z, 'z')
+        #dbg_check(log_det, 'log_det')
         return z, log_det
 
-    def _t_s_layer(self, x_t, x_s, params, D_in, D_out, relu=True):
+    def _t_s_layer(self, x_t, x_s, params, D_in, D_out, tanh=True):
         """One layer of the neural network for shift and scale operations t and s. 
 
         :param x_t: Input to layer of shift neural network (M, N, D_in).
@@ -210,8 +224,8 @@ class RealNVP(Bijector):
         :type D_in: int
         :param D_out: Dimensionality of output of networks.
         :type D_out: int
-        :param relu: Pass linear network operation through relu nonlinearity, default True.
-        :type D_out: bool, optional
+        :param tanh: Pass linear network operation through tanh nonlinearity, default True.
+        :type tanh: bool, optional
         """
         idx = 0
         num_ps = D_in * D_out
@@ -228,9 +242,9 @@ class RealNVP(Bijector):
 
         t = torch.matmul(x_t, t_weight) + t_bias
         s = torch.matmul(x_s, s_weight) + s_bias
-        if relu:
-            t = F.relu(t)
-            s = F.relu(s)
+        if tanh:
+            t = F.tanh(t)
+            s = F.tanh(s)
         return t, s, params[:, idx:]
 
     def count_num_params(self,):
@@ -239,9 +253,16 @@ class RealNVP(Bijector):
         :return: Number of parameters of the bijector.
         :rtype: int
         """
+        half_idx = self.D // 2
+        D_in, D_out = half_idx, half_idx
+        if self.D % 2 == 1:
+            D_in += (not self.transform_upper)
+            D_out += self.transform_upper
+
         return 2 * (
-            self.D * self.num_units
-            + self.D // 2
+            D_in * self.num_units
+            + D_out * self.num_units
+            + D_out
             + self.num_units
             + (self.num_layers - 1) * (self.num_units + 1) * self.num_units
         )
@@ -258,7 +279,7 @@ class Affine(Bijector):
     def __init__(self, D):
         super().__init__(D)
         self.name = "Affine"
-        self._eps = 1e-6
+        self._eps = 1e-10
 
     def forward_and_log_det(self, z, params):
         idx = 0

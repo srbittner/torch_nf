@@ -89,6 +89,19 @@ def test_RealNVP():
     assert not torch.eq(z[:, :, : D // 2], z_in[:, :, : D // 2]).all()
     assert torch.eq(z[:, :, D // 2 :], z_in[:, :, D // 2 :]).all()
 
+    # Odd D
+    D = 5
+    M = 20
+    num_layers = 1
+    num_units = 15
+    real_nvp = RealNVP(D, num_layers, num_units, transform_upper=False)
+    D_theta = real_nvp.count_num_params()
+    params = torch.tensor(np.random.normal(0.0, 0.1, (M, D_theta)))
+    z_in = torch.tensor(np.random.normal(0.0, 1.0, (M, N, D)))
+    z, log_det = real_nvp(z_in, params)
+    z_inv, log_det_inv = real_nvp.inverse_and_log_det(z, params)
+    assert np.sum((z_in.numpy() - z_inv.numpy()) ** 2) < 1e-4
+    assert np.sum((log_det.numpy() - log_det_inv.numpy()) ** 2) < 1e-4
     return None
 
 
@@ -233,8 +246,8 @@ def test_ToSimplex():
 
 if __name__ == "__main__":
     # test_Bijector_init()
-    # test_RealNVP()
+    test_RealNVP()
     # test_Affine()
-    test_ToInterval()
+    # test_ToInterval()
     # test_BatchNorm()
     # test_ToSimplex()
