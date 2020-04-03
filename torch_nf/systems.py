@@ -1,5 +1,7 @@
 import numpy as np
 import scipy.stats
+from torch_nf.mf_v1 import mean_field_EI
+
 
 class System(object):
     def __init__(self, D):
@@ -64,9 +66,16 @@ class Toy(System):
             x[i,:] = np.reshape(x_i, (self.D_x*self.N,))
         return x
         
+class MF_V1(System):
+    def __init__(self,):
+        D = 4
+        super(MF_V1, self).__init__(D)
+        self.lb = np.array([0., -2., 0., -2.])
+        self.ub = np.array([2.,  0., 2.,  0.])
+        self.prior = Uniform(self.lb, self.ub)
 
-
-
+    def simulate(self, z):
+        return mean_field_EI(z, traj=False)
 
 class Uniform(object):
     def __init__(self, lb, ub):
@@ -84,4 +93,5 @@ class Uniform(object):
         M = z.shape[0]
         p = 1./np.prod(self.ub - self.lb)
         return p*np.ones((M,))
+
 

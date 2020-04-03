@@ -3,7 +3,7 @@ import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_dist(z, log_q_z):
+def plot_dist(z, log_q_z, z0=None):
     df = pd.DataFrame(z)
     D = z.shape[1]
     z_labels = ["z%d" % d for d in range(1, D + 1)]
@@ -15,6 +15,9 @@ def plot_dist(z, log_q_z):
     cmap = plt.get_cmap("viridis")
     g = sns.PairGrid(df, vars=z_labels)
     g = g.map_diag(sns.kdeplot)
-    g = g.map_upper(plt.scatter)
-
+    g = g.map_upper(plt.scatter, color=cmap(log_q_z_std))
+    if z0 is not None:
+        for i in range(D):
+            for j in range(i+1,D):
+                g.axes[i][j].plot(z0[j], z0[i], '*k', markersize=20)
     return g

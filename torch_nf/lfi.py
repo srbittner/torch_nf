@@ -1,7 +1,9 @@
 import torch
 import numpy as np
+from torch_nf.util import plot_dist
+import matplotlib.pyplot as plt
 
-def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True):
+def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=None):
     x0_torch = torch.tensor(x0).float()
     losses = []
     for r in range(1, R+1):
@@ -18,8 +20,6 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True):
         x = system.simulate(z.numpy())
         x = torch.tensor(x).float()
         for i in range(1, num_iters+1):
-            print('r', r, 'i', i)
-            print(z.shape, x.shape)
             log_prob = cnf.log_prob(z[:,None,:], x)
             #dbg_check(log_prob, 'log_prob')
             loss = - torch.mean(w*log_prob[:,0])
@@ -37,11 +37,15 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True):
                     break
             losses.append(loss.item())
            
-    if verbose:
-        z, q_prop = SNPE_proposal(r, M, system, cnf, x0_torch)
-        print('z mean, var')
-        print(torch.mean(z, axis=0), torch.var(z, axis=0))
-    return losses
+        if verbose:
+            z, q_prop = SNPE_proposal(r+1, M, system, cnf, x0_torch)
+            z = z.detach()
+            q_prop = q_prop.detach()
+            plt.figure()
+            plot_dist(z.numpy(), q_prop.numpy(), z0=z0)
+            plt.show()
+
+    return cnf, losses
 
 def clip_grads(params, clip):
     for param in params():

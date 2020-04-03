@@ -430,7 +430,6 @@ class BatchNorm(Bijector):
         log_det = -torch.sum(torch.log(alpha))
         return z, log_det
 
-
 class ToInterval(Bijector):
     """Maps tensor in (M,N,D-1) to interval.
     :param D: Dimensionality of the bijection.
