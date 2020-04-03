@@ -6,24 +6,28 @@ from torch_nf.bijectors import RealNVP, BatchNorm, Affine
 from collections import OrderedDict
 import time
 
-
 class ConditionedNormFlow(torch.nn.Module):
-    def __init__(self, nf, D_x, hidden_layers):
+    def __init__(self, nf, D_x, hidden_layers, dropout=False):
         super().__init__()
         self.nf = nf
         self.D_x = D_x
         self.D_params = nf.D_params
         self.hidden_layers = hidden_layers
+        self.dropout = dropout
 
         hl = hidden_layers
 
         layers = [
             ("linear1", torch.nn.Linear(D_x, hidden_layers[0])),
-            ("relu1", torch.nn.ReLU()),
+            ("tanh1", torch.nn.Tanh()),
         ]
+        if self.dropout:
+            layers.append(('dropout1', torch.nn.Dropout()))
         for i in range(1, len(hl)):
             layers.append(("linear%d" % (i + 1), torch.nn.Linear(hl[i - 1], hl[i]),))
-            layers.append(("relu%d" % (i + 1), torch.nn.ReLU()))
+            layers.append(("relu%d" % (i + 1), torch.nn.Tanh()))
+            if self.dropout:
+                layers.append(('dropout%d' % (i+1), torch.nn.Dropout()))
         layers.append(
             ("linear%d" % (len(hl) + 1), torch.nn.Linear(hl[-1], self.D_params),)
         )

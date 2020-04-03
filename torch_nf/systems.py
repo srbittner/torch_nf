@@ -7,6 +7,7 @@ class System(object):
     def __init__(self, D):
         super(System, self).__init__()
         self.D = D
+        self.z_labels = None
         self.support_layer = None
         
     def simulate(self,):
@@ -68,11 +69,13 @@ class Toy(System):
         
 class MF_V1(System):
     def __init__(self,):
-        D = 4
+        D = 8
         super(MF_V1, self).__init__(D)
-        self.lb = np.array([0., -2., 0., -2.])
-        self.ub = np.array([2.,  0., 2.,  0.])
+        self.lb = np.array([0., -2., 0., -2., 0., 0., 0., 0.])
+        self.ub = np.array([2.,  0., 2.,  0., 1., 1., 1., 1.])
         self.prior = Uniform(self.lb, self.ub)
+        self.z_labels = [r'$W_{EE}$', r'$W_{EI}$', r'$W_{IE}$', r'$W_{II}$', \
+                         r'$\sigma_{EE}$', r'$\sigma_{EI}$', r'$\sigma_{IE}$', r'$\sigma_{II}$']
 
     def simulate(self, z):
         return mean_field_EI(z, traj=False)
