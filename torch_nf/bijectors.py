@@ -588,6 +588,9 @@ class ToSimplex(Bijector):
 
         return z, log_det
 
+    def count_num_params(self,):
+        return 0
+
 
 class MAF(Bijector):
     """MAF bijector.

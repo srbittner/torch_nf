@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from torch_nf.error_formatters import format_type_err_msg
-from torch_nf.bijectors import RealNVP, BatchNorm, Affine
+from torch_nf.bijectors import RealNVP, MAF, BatchNorm, Affine, Bijector
 from collections import OrderedDict
 import time
 
@@ -131,11 +131,16 @@ class NormFlow(object):
                 self.bijectors.append(BatchNorm(D))
                 # if i < num_stages - 1:
                 #    self.bijectors.append(BatchNorm(D))
+        elif arch_type == 'autoregressive':
+            self.bijectors.append(MAF(D, self.num_layers, self.num_units))
         elif arch_type == 'affine':
             self.bijectors.append(Affine(D))
 
         if support_layer is not None:
-            self.bijectors.append(support_layer)
+            if (issubclass(type(support_layer), Bijector)):
+                self.bijectors.append(support_layer)
+            else:
+                raise TypeError("Support layer not Bijector.")
 
         self.count_num_params()
 
@@ -162,11 +167,11 @@ class NormFlow(object):
 
     @arch_type.setter
     def arch_type(self, val):
-        arch_types = ["coupling", "affine"]
+        arch_types = ["coupling", "autoregressive", "affine"]
         if type(val) is not str:
             raise TypeError(format_type_err_msg(self, "arch_type", val, str))
         if val not in arch_types:
-            raise ValueError('NormalizingFlow arch_type must be "coupling" or "affine".')
+            raise ValueError('NormalizingFlow arch_type must be "coupling", "autoregressive", or "affine".')
         self.__arch_type = val
 
     @property
@@ -278,7 +283,7 @@ class NormFlow(object):
             z, sum_log_det = self.inverse_and_log_det(z, self.params)
         else:
             z, sum_log_det = self.inverse_and_log_det(z, params)
-        log_q_z = -torch.sum(z**2, axis=2)/2. - self.D*np.sqrt(2.0 * np.pi)
+        log_q_z = torch.sum(-(z**2), axis=2)/2. - self.D*np.log(np.sqrt(2.0 * np.pi))
         log_q_z = torch.clamp(log_q_z, -1e10, 1e10)
         return log_q_z - sum_log_det
 
