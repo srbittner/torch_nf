@@ -154,23 +154,21 @@ class RealNVP(Bijector):
         :param params: Parameterization of the bijector (M, >|theta|).
         :type params: torch.tensor
         """
-        half_idx = self.D//2
+        half_idx = self.D // 2
         D_in, D_out = half_idx, half_idx
         if self.transform_upper:
-            z1, z2 = z[:, :, : half_idx], z[:, :, half_idx :]
+            z1, z2 = z[:, :, :half_idx], z[:, :, half_idx:]
         else:
-            z2, z1 = z[:, :, : half_idx], z[:, :, half_idx :]
-        if (self.D % 2 == 1):
-            D_in += (not self.transform_upper)
+            z2, z1 = z[:, :, :half_idx], z[:, :, half_idx:]
+        if self.D % 2 == 1:
+            D_in += not self.transform_upper
             D_out += self.transform_upper
 
         # upper | lower
         t, s, params = self._t_s_layer(z1, z1, params, D_in, self.num_units)
         for i in range(self.num_layers - 1):
             t, s, params = self._t_s_layer(t, s, params, self.num_units, self.num_units)
-        t, s, params = self._t_s_layer(
-            t, s, params, self.num_units, D_out, tanh=False
-        )
+        t, s, params = self._t_s_layer(t, s, params, self.num_units, D_out, tanh=False)
         z2 = t + z2 * torch.exp(s)
 
         if self.transform_upper:
@@ -183,22 +181,20 @@ class RealNVP(Bijector):
         return z, log_det
 
     def inverse_and_log_det(self, z, params):
-        half_idx = self.D//2
+        half_idx = self.D // 2
         D_in, D_out = half_idx, half_idx
         if self.transform_upper:
             z1, z2 = z[:, :, : self.D // 2], z[:, :, self.D // 2 :]
         else:
             z2, z1 = z[:, :, : self.D // 2], z[:, :, self.D // 2 :]
-        if (self.D % 2 == 1):
-            D_in += (not self.transform_upper)
+        if self.D % 2 == 1:
+            D_in += not self.transform_upper
             D_out += self.transform_upper
         # upper | lower
         t, s, params = self._t_s_layer(z1, z1, params, D_in, self.num_units)
         for i in range(self.num_layers - 1):
             t, s, params = self._t_s_layer(t, s, params, self.num_units, self.num_units)
-        t, s, params = self._t_s_layer(
-            t, s, params, self.num_units, D_out, tanh=False
-        )
+        t, s, params = self._t_s_layer(t, s, params, self.num_units, D_out, tanh=False)
         z2 = (z2 - t) / torch.exp(s)
 
         if self.transform_upper:
@@ -207,8 +203,8 @@ class RealNVP(Bijector):
             z = torch.cat([z2, z1], dim=2)
 
         log_det = torch.sum(s, dim=2)
-        #dbg_check(z, 'z')
-        #dbg_check(log_det, 'log_det')
+        # dbg_check(z, 'z')
+        # dbg_check(log_det, 'log_det')
         return z, log_det
 
     def _t_s_layer(self, x_t, x_s, params, D_in, D_out, tanh=True):
@@ -256,7 +252,7 @@ class RealNVP(Bijector):
         half_idx = self.D // 2
         D_in, D_out = half_idx, half_idx
         if self.D % 2 == 1:
-            D_in += (not self.transform_upper)
+            D_in += not self.transform_upper
             D_out += self.transform_upper
 
         return 2 * (
@@ -279,13 +275,13 @@ class Affine(Bijector):
     def __init__(self, D):
         super().__init__(D)
         self.name = "Affine"
-        self._eps = 1e-10
 
     def forward_and_log_det(self, z, params):
         idx = 0
 
         num_ps = self.D
-        scale = torch.exp(params[:, idx : (idx + num_ps)])
+        alpha = params[:, idx : (idx + num_ps)]
+        scale = torch.exp(alpha)
         idx += num_ps
 
         num_ps = self.D
@@ -296,7 +292,7 @@ class Affine(Bijector):
         shift = shift[:, None, :]
 
         z = scale * z + shift
-        log_det = torch.sum(torch.log(scale + self._eps), axis=2)
+        log_det = torch.sum(alpha, axis=1, keepdim=True)
 
         return z, log_det
 
@@ -304,7 +300,8 @@ class Affine(Bijector):
         idx = 0
 
         num_ps = self.D
-        scale = torch.exp(params[:, idx : (idx + num_ps)])
+        alpha = params[:, idx : (idx + num_ps)]
+        scale = torch.exp(alpha)
         idx += num_ps
 
         num_ps = self.D
@@ -315,7 +312,7 @@ class Affine(Bijector):
         shift = shift[:, None, :]
 
         z = (z - shift) / scale
-        log_det = torch.sum(torch.log(scale + self._eps), axis=2)
+        log_det = torch.sum(alpha, axis=1, keepdim=True)
 
         return z, log_det
 
@@ -430,6 +427,7 @@ class BatchNorm(Bijector):
         log_det = -torch.sum(torch.log(alpha))
         return z, log_det
 
+
 class ToInterval(Bijector):
     """Maps tensor in (M,N,D-1) to interval.
     :param D: Dimensionality of the bijection.
@@ -524,7 +522,7 @@ class ToInterval(Bijector):
         z = self.tanh_flg * out + (1 - self.tanh_flg) * z
 
         out = self.softplus_m * F.softplus(z) + self.softplus_c
-        softplus_ldj = torch.sum(self.softplus_flg * F.logsigmoid(z), axis=2,)
+        softplus_ldj = torch.sum(self.softplus_flg * F.logsigmoid(z), axis=2)
 
         z = self.softplus_flg * out + (1 - self.softplus_flg) * z
         ldj = tanh_ldj + softplus_ldj
@@ -537,8 +535,8 @@ class ToInterval(Bijector):
             + self._eps
         )
         z = self.softplus_flg * softplus_inv + (1 - self.softplus_flg) * z
-        
-        softplus_ldj = torch.sum(self.softplus_flg * F.logsigmoid(z), axis=2,)
+
+        softplus_ldj = torch.sum(self.softplus_flg * F.logsigmoid(z), axis=2)
 
         tanh_inv = torch_atanh(self.tanh_flg * (z - self.tanh_c) / self.tanh_m)
         z = self.tanh_flg * tanh_inv + (1 - self.tanh_flg) * z
@@ -546,7 +544,10 @@ class ToInterval(Bijector):
 
         tanh_ldj = torch.sum(
             self.tanh_flg
-            * (torch.log(self.tanh_m + self._eps) + torch.log(1.0 - (tanh_z ** 2) + self._eps)),
+            * (
+                torch.log(self.tanh_m + self._eps)
+                + torch.log(1.0 - (tanh_z ** 2) + self._eps)
+            ),
             axis=2,
         )
 
@@ -587,8 +588,205 @@ class ToSimplex(Bijector):
 
         return z, log_det
 
+
+class MAF(Bijector):
+    """MAF bijector.
+
+    A masked autoregressive neural network parameterizes the affine
+    bijection.
+
+    :param D: Dimensionality of the bijection.
+    :type D: int
+    :param num_layers: Number of layers in the masked neural network.
+    :type num_layers: int
+    :param num_units: Number of hidden units per layer in network.
+    :type num_units: int
+
+    """
+
+    def __init__(self, D, num_layers, num_units):
+        super().__init__(D)
+        self.name = "MAF"
+        self.num_layers = num_layers
+        self.num_units = num_units
+        self._get_masks()
+
+    @property
+    def num_layers(self,):
+        return self.__num_layers
+
+    @num_layers.setter
+    def num_layers(self, val):
+        if type(val) is not int:
+            raise (TypeError(format_type_err_msg(self, "num_layers", val, int)))
+        elif val < 1:
+            raise ValueError("MAF.num_layers must be positive.")
+        elif val > 5:
+            print("Warning: MAF.num_layers set to maximum of 5 (received %d)." % val)
+            self.__num_layers = 5
+        else:
+            self.__num_layers = val
+
+    @property
+    def num_units(self,):
+        return self.__num_units
+
+    @num_units.setter
+    def num_units(self, val):
+        if type(val) is not int:
+            raise (TypeError(format_type_err_msg(self, "num_units", val, int)))
+        elif val < 5:
+            print("Warning: num_units set to minimum of 15 (received %d)." % val)
+            self.__num_units = 5
+        elif val > 1000:
+            print("Warning: num_units set to maximum of 1,000 (received %d)." % val)
+            self.__num_units = 1000
+        else:
+            self.__num_units = val
+
+    def _get_masks(self,):
+        self.ms = []
+        self.Ms = []
+        K_prev = self.D
+        m_prev = np.arange(1, self.D + 1)
+        for i in range(self.num_layers):
+            K = self.num_units
+            m = np.random.randint(1, self.D, (K,))
+            M = np.zeros((K_prev, K))
+            for k_prev in range(K_prev):
+                for k in range(K):
+                    if m_prev[k_prev] <= m[k]:
+                        M[k_prev, k] = 1
+            self.Ms.append(torch.tensor(M[None,:,:]).float())
+            self.ms.append(m)
+            K_prev = K
+            m_prev = m
+
+        m = np.arange(1, self.D + 1)
+        M = np.zeros((K_prev, self.D))
+        for k_prev in range(K_prev):
+            for d in range(self.D):
+                if m_prev[k_prev] < m[d]:
+                    M[k_prev, d] = 1
+        self.ms.append(m)
+        self.Ms.append(torch.tensor(M[None,:,:]).float())
+
+        return None
+
+    def _mask_weights(self, params):
+        idx = 0
+        self.W_mus = []
+        self.W_alphas = []
+
+        num_ps = self.D * self.num_units
+        self.W_mus.append(
+            self.Ms[0] * params[:, idx : (idx + num_ps)].view(-1, self.D, self.num_units)
+        )
+        idx += num_ps
+        self.W_alphas.append(
+            self.Ms[0] * params[:, idx : (idx + num_ps)].view(-1, self.D, self.num_units)
+        )
+        idx += num_ps
+
+        for i in range(1, self.num_layers):
+            num_ps = self.num_units * self.num_units
+            self.W_mus.append(
+                self.Ms[i]
+                * params[:, idx : (idx + num_ps)].view(
+                    -1, self.num_units, self.num_units
+                )
+            )
+            idx += num_ps
+            self.W_alphas.append(
+                self.Ms[i]
+                * params[:, idx : (idx + num_ps)].view(
+                    -1, self.num_units, self.num_units
+                )
+            )
+            idx += num_ps
+
+        num_ps = self.D * self.num_units
+        self.W_mus.append(
+            self.Ms[-1] * params[:, idx : (idx + num_ps)].view(-1, self.num_units, self.D)
+        )
+        idx += num_ps
+        self.W_alphas.append(
+            self.Ms[-1] * params[:, idx : (idx + num_ps)].view(-1, self.num_units, self.D)
+        )
+        idx += num_ps
+
+        return None
+
+    def forward_and_log_det(self, z, params):
+        """Forward transform of MAF and log determinant of the jacobian.
+
+        :param z: Input to the bijector (M, N, D).
+        :type z: torch.tensor
+        :param params: Parameterization of the bijector (M, >|theta|).
+        :type params: torch.tensor
+        """
+        self._mask_weights(params)
+        u = z
+        for i in range(self.D+1):
+            f_mu, f_alpha = self._mu_and_alpha(z)
+            z = u * torch.exp(f_alpha) + f_mu
+
+        return z, torch.sum(f_alpha, axis=2)
+
+    def inverse_and_log_det(self, z, params):
+        self._mask_weights(params)
+        f_mu, f_alpha = self._mu_and_alpha(z)
+        z = (z - f_mu) / torch.exp(f_alpha)
+
+        log_det = torch.sum(f_alpha, dim=2)
+        return z, log_det
+
+    def _mu_and_alpha(self, z):
+        f_mu, f_alpha = self._mu_alpha_layer(z, z, self.W_mus[0], self.W_alphas[0])
+        for i in range(1, self.num_layers):
+            f_mu, f_alpha = self._mu_alpha_layer(
+                f_mu, f_alpha, self.W_mus[i], self.W_alphas[i]
+            )
+        f_mu, f_alpha = self._mu_alpha_layer(
+            f_mu, f_alpha, self.W_mus[-1], self.W_alphas[-1], tanh=False
+        )
+        return f_mu, f_alpha
+
+    def _mu_alpha_layer(self, x_mu, x_alpha, W_mu, W_alpha, tanh=True):
+        """One layer of the neural network for shift and scale operations t and s. 
+
+        :param x_mu: Input to layer of shift neural network (M, N, D_in).
+        :type x_mu: torch.tensor
+        :param x_alpha: Input to layer of shift neural network (M, N, D_in).
+        :type x_alpha: torch.tensor
+        :param W_mu: Masked weight matrix for f_mu. (M, D_in, D_out)
+        :type W_mu: torch.tensor.
+        :param W_alpha: Masked weight matrix for f_alpha. (M, D_in, D_out)
+        :type W_alpha: torch.tensor.
+        :param tanh: Pass linear network operation through tanh nonlinearity, default True.
+        :type tanh: bool, optional
+        """
+        x_mu = torch.matmul(x_mu, W_mu)
+        x_alpha = torch.matmul(x_alpha, W_alpha)
+        if tanh:
+            x_mu = F.tanh(x_mu)
+            x_alpha = F.tanh(x_alpha)
+        return x_mu, x_alpha
+
+    def count_num_params(self,):
+        """Return the number of parameters for the bijector.
+
+        :return: Number of parameters of the bijector.
+        :rtype: int
+        """
+        return 2 * (
+            2 * self.D * self.num_units + (self.num_layers - 1) * (self.num_units ** 2)
+        )
+
+
 def torch_atanh(x):
-    return 0.5*torch.log((1+x)/(1-x))
+    return 0.5 * torch.log((1 + x) / (1 - x))
+
 
 def dbg_check(tensor, name):
     num_elems = 1

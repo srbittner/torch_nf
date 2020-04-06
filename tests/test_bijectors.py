@@ -5,6 +5,7 @@ import numpy as np
 from torch_nf.bijectors import (
     Bijector,
     RealNVP,
+    MAF,
     BatchNorm,
     ToSimplex,
     Affine,
@@ -102,6 +103,95 @@ def test_RealNVP():
     z_inv, log_det_inv = real_nvp.inverse_and_log_det(z, params)
     assert np.sum((z_in.numpy() - z_inv.numpy()) ** 2) < 1e-4
     assert np.sum((log_det.numpy() - log_det_inv.numpy()) ** 2) < 1e-4
+
+    # D = 8
+    D = 8
+    M = 20
+    num_layers = 1
+    num_units = 15
+    real_nvp = RealNVP(D, num_layers, num_units, transform_upper=False)
+    D_theta = real_nvp.count_num_params()
+    params = torch.tensor(np.random.normal(0.0, 0.1, (M, D_theta)))
+    z_in = torch.tensor(np.random.normal(0.0, 1.0, (M, N, D)))
+    z, log_det = real_nvp(z_in, params)
+    z_inv, log_det_inv = real_nvp.inverse_and_log_det(z, params)
+    assert np.sum((z_in.numpy() - z_inv.numpy()) ** 2) < 1e-4
+    assert np.sum((log_det.numpy() - log_det_inv.numpy()) ** 2) < 1e-4
+
+    return None
+
+def test_MAF():
+    D = 4
+    num_layers = 2
+    num_units = 15
+    maf = MAF(D, num_layers, num_units)
+    assert maf.name == "MAF"
+    assert maf.D == D
+    assert maf.num_layers == num_layers
+    assert maf.num_units == num_units
+
+    maf = MAF(D, 6, 2000)
+    assert maf.num_layers == 5
+    assert maf.num_units == 1000
+
+    maf = MAF(D, 3, 10)
+    #assert maf.num_units == 15
+
+    with raises(TypeError):
+        maf = MAF(D, "foo", 10)
+    with raises(ValueError):
+        maf = MAF(D, -1, 10)
+
+    with raises(TypeError):
+        maf = MAF(D, 2, "foo")
+
+    num_layers = 3
+    num_units=20
+    maf = MAF(D, num_layers, num_units)
+    for i, m in enumerate(maf.ms):
+        if i==0 or i==(len(maf.ms)-1):
+            assert(np.sum(m > D) == 0)
+        else:
+            assert(np.sum(m >= D) == 0)
+        assert(np.sum(m < 1) == 0)
+    D_ins = [D] + num_layers*[num_units]
+    D_outs = num_layers*[num_units] + [D]
+    for i, M in enumerate(maf.Ms):
+        assert M.shape[0] == 1 and M.shape[1] == D_ins[i] and M.shape[2] == D_outs[i]
+
+    M = 50
+    N = 20
+    np.random.seed(0)
+    torch.manual_seed(0)
+    D_theta = maf.count_num_params()
+    params = torch.tensor(np.random.normal(0.0, 0.1, (M, D_theta)))
+    z_in = torch.tensor(np.random.normal(0.0, 1.0, (M, N, D)))
+    z, log_det = maf(z_in, params)
+    assert z.shape[0] == M and z.shape[1] == N and z.shape[2] == D
+    assert log_det.shape[0] == M and log_det.shape[1] == N
+    assert not torch.eq(z, z_in).all()
+
+    z_inv, log_det_inv = maf.inverse_and_log_det(z, params)
+    assert np.sum((z_in.numpy() - z_inv.numpy()) ** 2) < 1e-6
+
+    D = 20
+    maf = MAF(D, 3, 100)
+    M = 50
+    N = 20
+    np.random.seed(0)
+    torch.manual_seed(0)
+    D_theta = maf.count_num_params()
+    params = torch.tensor(np.random.normal(0.0, 0.1, (M, D_theta)))
+    z_in = torch.tensor(np.random.normal(0.0, 1.0, (M, N, D)))
+    z, log_det = maf(z_in, params)
+    assert z.shape[0] == M and z.shape[1] == N and z.shape[2] == D
+    assert log_det.shape[0] == M and log_det.shape[1] == N
+    assert not torch.eq(z, z_in).all()
+
+    z_inv, log_det_inv = maf.inverse_and_log_det(z, params)
+    assert np.sum((z_in.numpy() - z_inv.numpy()) ** 2) < 1e-6
+    assert np.sum((log_det.numpy() - log_det_inv.numpy()) ** 2) < 1e-6
+
     return None
 
 
@@ -245,9 +335,10 @@ def test_ToSimplex():
 
 
 if __name__ == "__main__":
-    # test_Bijector_init()
+    test_Bijector_init()
     test_RealNVP()
-    # test_Affine()
-    # test_ToInterval()
-    # test_BatchNorm()
-    # test_ToSimplex()
+    test_MAF()
+    test_Affine()
+    test_ToInterval()
+    test_BatchNorm()
+    test_ToSimplex()
