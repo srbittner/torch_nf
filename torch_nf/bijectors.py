@@ -727,7 +727,7 @@ class MAF(Bijector):
         """
         self._mask_weights(params)
         u = z
-        for i in range(self.D+1):
+        for i in range(self.D-1):
             f_mu, f_alpha = self._mu_and_alpha(z)
             z = u * torch.exp(f_alpha) + f_mu
 

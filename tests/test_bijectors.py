@@ -164,7 +164,7 @@ def test_MAF():
     np.random.seed(0)
     torch.manual_seed(0)
     D_theta = maf.count_num_params()
-    params = torch.tensor(np.random.normal(0.0, 0.1, (M, D_theta)))
+    params = torch.tensor(np.random.normal(0.0, 1., (M, D_theta)))
     z_in = torch.tensor(np.random.normal(0.0, 1.0, (M, N, D)))
     z, log_det = maf(z_in, params)
     assert z.shape[0] == M and z.shape[1] == N and z.shape[2] == D
@@ -181,7 +181,7 @@ def test_MAF():
     np.random.seed(0)
     torch.manual_seed(0)
     D_theta = maf.count_num_params()
-    params = torch.tensor(np.random.normal(0.0, 0.1, (M, D_theta)))
+    params = torch.tensor(np.random.normal(0.0, .1, (M, D_theta)))
     z_in = torch.tensor(np.random.normal(0.0, 1.0, (M, N, D)))
     z, log_det = maf(z_in, params)
     assert z.shape[0] == M and z.shape[1] == N and z.shape[2] == D
