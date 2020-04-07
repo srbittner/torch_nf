@@ -239,8 +239,8 @@ class RealNVP(Bijector):
         t = torch.matmul(x_t, t_weight) + t_bias
         s = torch.matmul(x_s, s_weight) + s_bias
         if tanh:
-            t = F.tanh(t)
-            s = F.tanh(s)
+            t = torch.tanh(t)
+            s = torch.tanh(s)
         return t, s, params[:, idx:]
 
     def count_num_params(self,):
@@ -444,7 +444,7 @@ class ToInterval(Bijector):
         self.name = "ToInterval"
         self.lb = lb
         self.ub = ub
-        self._eps = 1e-6
+        self._eps = 1e-12
 
         if self.lb.shape[0] != self.ub.shape[0]:
             raise ValueError("Lower and upper bounds must be same length.")
@@ -514,7 +514,7 @@ class ToInterval(Bijector):
         tanh_ldj = torch.sum(
             self.tanh_flg
             * (
-                torch.log(self.tanh_m + self._eps)
+                torch.log(self.tanh_m)
                 + torch.log(1.0 - (tanh_z ** 2) + self._eps)
             ),
             axis=2,
@@ -545,7 +545,7 @@ class ToInterval(Bijector):
         tanh_ldj = torch.sum(
             self.tanh_flg
             * (
-                torch.log(self.tanh_m + self._eps)
+                torch.log(self.tanh_m)
                 + torch.log(1.0 - (tanh_z ** 2) + self._eps)
             ),
             axis=2,
@@ -553,6 +553,10 @@ class ToInterval(Bijector):
 
         log_det = tanh_ldj + softplus_ldj
         return z, log_det
+        
+def torch_atanh(x):
+    _eps = 1e-12
+    return 0.5 * (torch.log(1 + x + _eps) - torch.log(1 - x + _eps))
 
 
 class ToSimplex(Bijector):
@@ -607,11 +611,12 @@ class MAF(Bijector):
 
     """
 
-    def __init__(self, D, num_layers, num_units):
+    def __init__(self, D, num_layers, num_units, fwd_fac=True):
         super().__init__(D)
         self.name = "MAF"
         self.num_layers = num_layers
         self.num_units = num_units
+        self.fwd_fac = fwd_fac
         self._get_masks()
 
     @property
@@ -647,11 +652,24 @@ class MAF(Bijector):
         else:
             self.__num_units = val
 
+    @property
+    def fwd_fac(self,):
+        return self.__fwd_fac
+
+    @fwd_fac.setter
+    def fwd_fac(self, val):
+        if (type(val) is not bool):
+            raise TypeError(format_type_err_msg(self, "fwd_fac", val, bool))
+        self.__fwd_fac = val
+
     def _get_masks(self,):
         self.ms = []
         self.Ms = []
         K_prev = self.D
-        m_prev = np.arange(1, self.D + 1)
+        if (self.fwd_fac):
+            m_prev = np.arange(1, self.D + 1)
+        else:
+            m_prev = np.arange(self.D, -1, -1)
         for i in range(self.num_layers):
             K = self.num_units
             m = np.random.randint(1, self.D, (K,))
@@ -665,7 +683,10 @@ class MAF(Bijector):
             K_prev = K
             m_prev = m
 
-        m = np.arange(1, self.D + 1)
+        if (self.fwd_fac):
+            m = np.arange(1, self.D + 1)
+        else:
+            m = np.arange(self.D, -1, -1)
         M = np.zeros((K_prev, self.D))
         for k_prev in range(K_prev):
             for d in range(self.D):
@@ -772,8 +793,8 @@ class MAF(Bijector):
         x_mu = torch.matmul(x_mu, W_mu)
         x_alpha = torch.matmul(x_alpha, W_alpha)
         if tanh:
-            x_mu = F.tanh(x_mu)
-            x_alpha = F.tanh(x_alpha)
+            x_mu = torch.tanh(x_mu)
+            x_alpha = torch.tanh(x_alpha)
         return x_mu, x_alpha
 
     def count_num_params(self,):
@@ -787,8 +808,6 @@ class MAF(Bijector):
         )
 
 
-def torch_atanh(x):
-    return 0.5 * torch.log((1 + x) / (1 - x))
 
 
 def dbg_check(tensor, name):

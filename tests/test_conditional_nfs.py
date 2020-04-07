@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 from torch_nf.conditional_nf import NormFlow, ConditionedNormFlow
-from torch_nf.bijectors import Bijector, RealNVP, MAF, BatchNorm, ToSimplex
+from torch_nf.bijectors import Bijector, RealNVP, MAF, BatchNorm, ToSimplex, Affine
 from pytest import raises
 
 import os
@@ -83,11 +83,13 @@ def test_NormFlow():
     assert(issubclass(type(nf.bijectors[1]), BatchNorm))
     assert(issubclass(type(nf.bijectors[2]), RealNVP))
     assert(issubclass(type(nf.bijectors[3]), BatchNorm))
-    assert(issubclass(type(nf.bijectors[4]), RealNVP))
-    assert(issubclass(type(nf.bijectors[5]), BatchNorm))
-    assert(issubclass(type(nf.bijectors[6]), RealNVP))
-    assert(issubclass(type(nf.bijectors[7]), BatchNorm))
-    assert(issubclass(type(nf.bijectors[8]), ToSimplex))
+    assert(issubclass(type(nf.bijectors[4]), Affine))
+    assert(issubclass(type(nf.bijectors[5]), RealNVP))
+    assert(issubclass(type(nf.bijectors[6]), BatchNorm))
+    assert(issubclass(type(nf.bijectors[7]), RealNVP))
+    assert(issubclass(type(nf.bijectors[8]), BatchNorm))
+    assert(issubclass(type(nf.bijectors[9]), Affine))
+    assert(issubclass(type(nf.bijectors[10]), ToSimplex))
 
     nf = NormFlow(D, 'coupling', False, 2, 2, 20)
     assert(issubclass(type(nf.bijectors[0]), RealNVP))

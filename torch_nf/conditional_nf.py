@@ -6,6 +6,7 @@ from torch_nf.bijectors import RealNVP, MAF, BatchNorm, Affine, Bijector
 from collections import OrderedDict
 import time
 
+
 class ConditionedNormFlow(torch.nn.Module):
     def __init__(self, nf, D_x, hidden_layers, dropout=False):
         super().__init__()
@@ -22,14 +23,14 @@ class ConditionedNormFlow(torch.nn.Module):
             ("tanh1", torch.nn.Tanh()),
         ]
         if self.dropout:
-            layers.append(('dropout1', torch.nn.Dropout()))
+            layers.append(("dropout1", torch.nn.Dropout()))
         for i in range(1, len(hl)):
-            layers.append(("linear%d" % (i + 1), torch.nn.Linear(hl[i - 1], hl[i]),))
+            layers.append(("linear%d" % (i + 1), torch.nn.Linear(hl[i - 1], hl[i])))
             layers.append(("relu%d" % (i + 1), torch.nn.Tanh()))
             if self.dropout:
-                layers.append(('dropout%d' % (i+1), torch.nn.Dropout()))
+                layers.append(("dropout%d" % (i + 1), torch.nn.Dropout()))
         layers.append(
-            ("linear%d" % (len(hl) + 1), torch.nn.Linear(hl[-1], self.D_params),)
+            ("linear%d" % (len(hl) + 1), torch.nn.Linear(hl[-1], self.D_params))
         )
 
         layer_dict = OrderedDict(layers)
@@ -86,9 +87,9 @@ class ConditionedNormFlow(torch.nn.Module):
                 raise ValueError("Hidden unit counts must be positive.")
         self.__hidden_layers = val
 
-    def __call__(self, x, N=100):
+    def __call__(self, x, N=100, freeze_bn=False):
         params = self.param_net(x)
-        z, log_q_z = self.nf(N=N, params=params)
+        z, log_q_z = self.nf(N=N, params=params, freeze_bn=freeze_bn)
         return z, log_q_z
 
     def log_prob(self, z, x):
@@ -119,7 +120,7 @@ class NormFlow(object):
 
         self.bijectors = []
 
-        if arch_type == 'coupling':
+        if arch_type == "coupling":
             for i in range(num_stages):
                 self.bijectors.append(
                     RealNVP(D, num_layers, num_units, transform_upper=True)
@@ -129,15 +130,16 @@ class NormFlow(object):
                     RealNVP(D, num_layers, num_units, transform_upper=False)
                 )
                 self.bijectors.append(BatchNorm(D))
-                # if i < num_stages - 1:
-                #    self.bijectors.append(BatchNorm(D))
-        elif arch_type == 'autoregressive':
-            self.bijectors.append(MAF(D, self.num_layers, self.num_units))
-        elif arch_type == 'affine':
+                self.bijectors.append(Affine(D))
+        elif arch_type == "autoregressive":
+            self.bijectors.append(MAF(D, self.num_layers, self.num_units, fwd_fac=True))
+            self.bijectors.append(BatchNorm(D))
+            self.bijectors.append(Affine(D))
+        elif arch_type == "affine":
             self.bijectors.append(Affine(D))
 
         if support_layer is not None:
-            if (issubclass(type(support_layer), Bijector)):
+            if issubclass(type(support_layer), Bijector):
                 self.bijectors.append(support_layer)
             else:
                 raise TypeError("Support layer not Bijector.")
@@ -171,7 +173,9 @@ class NormFlow(object):
         if type(val) is not str:
             raise TypeError(format_type_err_msg(self, "arch_type", val, str))
         if val not in arch_types:
-            raise ValueError('NormalizingFlow arch_type must be "coupling", "autoregressive", or "affine".')
+            raise ValueError(
+                'NormalizingFlow arch_type must be "coupling", "autoregressive", or "affine".'
+            )
         self.__arch_type = val
 
     @property
@@ -232,13 +236,13 @@ class NormFlow(object):
         else:
             self.__num_units = val
 
-    def __call__(self, N=100, params=None):
+    def __call__(self, N=100, params=None, freeze_bn=False):
         if not self.conditioner:
-            return self.forward(self.params, N)
+            return self.forward(self.params, N, freeze_bn=freeze_bn)
         else:
-            return self.forward(params, N)
+            return self.forward(params, N, freeze_bn=freeze_bn)
 
-    def forward(self, params, N=100):
+    def forward(self, params, N=100, freeze_bn=False):
         M = params.size(0)
         omega = np.random.normal(0.0, 1.0, (M, N, self.D))
         z = torch.tensor(omega).float()
@@ -248,14 +252,16 @@ class NormFlow(object):
         )
         log_q_z = torch.tensor(log_q_z)
 
-        idx = 0 # parameter index
+        idx = 0  # parameter index
         for i, bijector in enumerate(self.bijectors):
             if bijector.name == "BatchNorm":
-                z, log_det = bijector(z, use_last=(M == 1))
+                z, log_det = bijector(z, use_last=freeze_bn)
             else:
-                num_ps = bijector.count_num_params() # number of parameters for bijector
+                num_ps = (
+                    bijector.count_num_params()
+                )  # number of parameters for bijector
                 if num_ps > 0:
-                    z, log_det = bijector(z, params[:, idx:(idx+num_ps)])
+                    z, log_det = bijector(z, params[:, idx : (idx + num_ps)])
                     idx += num_ps
                 else:
                     z, log_det = bijector(z)
@@ -267,11 +273,13 @@ class NormFlow(object):
         z_size = z.size()
         idx = self.D_params
         sum_log_det = torch.zeros((z_size[0], z_size[1]))
-        for i in range(num_bijectors-1, -1, -1):
+        for i in range(num_bijectors - 1, -1, -1):
             bijector = self.bijectors[i]
             num_ps = bijector.count_num_params()
             if num_ps > 0:
-                z, log_det = bijector.inverse_and_log_det(z, params[:, (idx-num_ps):idx])
+                z, log_det = bijector.inverse_and_log_det(
+                    z, params[:, (idx - num_ps) : idx]
+                )
                 idx -= num_ps
             else:
                 z, log_det = bijector.inverse_and_log_det(z)
@@ -283,8 +291,10 @@ class NormFlow(object):
             z, sum_log_det = self.inverse_and_log_det(z, self.params)
         else:
             z, sum_log_det = self.inverse_and_log_det(z, params)
-        log_q_z = torch.sum(-(z**2), axis=2)/2. - self.D*np.log(np.sqrt(2.0 * np.pi))
-        log_q_z = torch.clamp(log_q_z, -1e10, 1e10)
+        log_q_z = torch.sum(-(z ** 2), axis=2) / 2.0 - self.D * np.log(
+            np.sqrt(2.0 * np.pi)
+        )
+        #log_q_z = torch.clamp(log_q_z, -1e10, 1e10)
         return log_q_z - sum_log_det
 
     def count_num_params(self,):
