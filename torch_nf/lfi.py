@@ -20,9 +20,11 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
         plot_dist(z.numpy(), np.log(q_prop.numpy()), z0=z0, z_labels=system.z_labels)
         plt.show()
 
-
+    zs = []
+    log_probs = []
     optimizer = torch.optim.Adam(cnf.parameters(), lr=1e-3)
     for r in range(1, R + 1):
+        it_times = []
         z, q_prop = SNPE_proposal(r, M, system, cnf, x0_torch)
         z, q_prop = z.detach(), q_prop.detach()
         q_prior = torch.tensor(system.prior.pdf(z.numpy())).float()
@@ -51,7 +53,10 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
             optimizer.step()
 
             if verbose and ((r == 1 and i == 1) or i % (num_iters // 20) == 0):
-                print("r %d, it %d, loss=%.2E, time/it=%.3f" % (r, i, _loss, time.time()-time1))
+                time2 = time.time()
+                it_time = time2-time1
+                it_times.append(it_time)
+                print("r %d, it %d, loss=%.2E, time/it=%.3f" % (r, i, _loss, it_time))
                 if (r != 1 and (i % num_iters) == 0):
                     plt.figure()
                     plt.plot(-np.array(losses))
@@ -62,18 +67,23 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
             losses.append(loss.item())
 
         print('post r')
+        z, q_prop = SNPE_proposal(r + 1, M, system, cnf, x0_torch)
+        dbg_check(z, 'z')
+        dbg_check(q_prop, 'q_prop')
+        z = z.detach().numpy()
+        log_q_prop = np.log(q_prop.detach().numpy())
+        zs.append(z)
+        log_probs.append(log_q_prop)
         if verbose:
-            z, q_prop = SNPE_proposal(r + 1, M, system, cnf, x0_torch)
-            dbg_check(z, 'z')
-            dbg_check(q_prop, 'q_prop')
-            z = z.detach()
-            q_prop = q_prop.detach()
             plt.figure()
-            plot_dist(z.numpy(), np.log(q_prop.numpy()), z0=z0, z_labels=system.z_labels)
+            plot_dist(z, log_q_prop, z0=z0, z_labels=system.z_labels)
             plt.show()
-            #return z, q_prop
 
-    return cnf, losses
+    it_time = np.mean(np.array(it_times))
+    losses = np.array(losses)
+    zs = np.array(zs)
+    log_probs = np.array(log_probs)
+    return cnf, losses, zs, log_probs, it_time
 
 
 def clip_grads(params, clip):
