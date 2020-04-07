@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 from torch_nf.util import plot_dist
-import matplotlib.pyplot as plt
 from torch_nf.error_formatters import dbg_check
 import time
 
@@ -16,9 +15,9 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
         dbg_check(q_prop, 'q_prop')
         z = z.detach()
         q_prop = q_prop.detach()
-        plt.figure()
-        plot_dist(z.numpy(), np.log(q_prop.numpy()), z0=z0, z_labels=system.z_labels)
-        plt.show()
+        #plt.figure()
+        #plot_dist(z.numpy(), np.log(q_prop.numpy()), z0=z0, z_labels=system.z_labels)
+        #plt.show()
 
     zs = []
     log_probs = []
@@ -58,10 +57,10 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
                 it_times.append(it_time)
                 print("r %d, it %d, loss=%.2E, time/it=%.3f" % (r, i, _loss, it_time))
                 if (r != 1 and (i % num_iters) == 0):
-                    plt.figure()
-                    plt.plot(-np.array(losses))
-                    plt.ylim([-losses[100], -losses[-1]])
-                    plt.show()
+                    #plt.figure()
+                    #plt.plot(-np.array(losses))
+                    #plt.ylim([-losses[100], -losses[-1]])
+                    #plt.show()
                 if np.isnan(_loss):
                     break
             losses.append(loss.item())
@@ -75,9 +74,9 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
         zs.append(z)
         log_probs.append(log_q_prop)
         if verbose:
-            plt.figure()
-            plot_dist(z, log_q_prop, z0=z0, z_labels=system.z_labels)
-            plt.show()
+            #plt.figure()
+            #plot_dist(z, log_q_prop, z0=z0, z_labels=system.z_labels)
+            #plt.show()
 
     it_time = np.mean(np.array(it_times))
     losses = np.array(losses)
