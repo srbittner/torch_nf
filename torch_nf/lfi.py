@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from torch_nf.util import plot_dist
+#from torch_nf.util import plot_dist
 from torch_nf.error_formatters import dbg_check
 import time
 
@@ -56,7 +56,7 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
                 it_time = time2-time1
                 if i % (num_iters // 20) == 0:
                     it_times.append(it_time)
-                print("r %d, it %d, loss=%.2E, time/it=%.3f" % (r, i, _loss, it_time))
+                print("r %d, it %d, loss=%.2E, time/it=%.3f" % (r, i, _loss, it_time), flush=True)
                 #if verbose:
                     #if (r != 1 and (i % num_iters) == 0):
                         #plt.figure()
