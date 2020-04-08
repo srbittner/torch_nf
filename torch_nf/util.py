@@ -3,11 +3,17 @@ import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_dist(z, log_q_z, kde=False, z0=None, z_labels=None):
-    df = pd.DataFrame(z[:200,:])
-    D = z.shape[1]
+def plot_dist(z, log_q_z, kde=False, z0=None, z_labels=None, inds=None):
+    if inds is None:
+        D = z.shape[1]
+        inds = np.arange(D)
+    else:
+        D = len(inds)
+    df = pd.DataFrame(z[:200,inds])
     if z_labels is None:
         z_labels = ["z%d" % d for d in range(1, D + 1)]
+    else:
+        z_labels = [z_labels[i] for i in inds]
     df.columns = z_labels
     df["log_q_z"] = log_q_z[:200]
 

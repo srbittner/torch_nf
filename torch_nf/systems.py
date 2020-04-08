@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.stats
-from torch_nf.mf_v1 import mean_field_EI
+from torch_nf.mf_v1 import mean_field_EI, mean_field_4n
 
 
 class System(object):
@@ -14,6 +14,9 @@ class System(object):
         raise NotImplementedError()
         
     def sample_prior(self, M):
+        raise NotImplementedError()
+
+    def reject(self,):
         raise NotImplementedError()
         
 class Gauss(System):
@@ -79,6 +82,30 @@ class MF_V1(System):
 
     def simulate(self, z):
         return mean_field_EI(z, traj=False)
+
+class MF_V1_4n(System):
+    def __init__(self,):
+        D = 16
+        super(MF_V1_4n, self).__init__(D)
+        self.lb = 5.*np.array([0., -1., -1., -1.,
+                            0., -1., -1., -1.,
+                            0., -1., -1., -1.,
+                            0., -1., -1., -1.])
+        self.ub = 5.*np.array([1., 0., 0., 0.,
+                            1., 0., 0., 0.,
+                            1., 0., 0., 0.,
+                            1., 0., 0., 0.])
+        self.prior = Uniform(self.lb, self.ub)
+        self.z_labels = [r'$W_{EE}$', r'$W_{EP}$', r'$W_{ES}$', r'$W_{EV}$', \
+                         r'$W_{PE}$', r'$W_{PP}$', r'$W_{PS}$', r'$W_{PV}$', \
+                         r'$W_{SE}$', r'$W_{SP}$', r'$W_{SS}$', r'$W_{SV}$', \
+                         r'$W_{VE}$', r'$W_{VP}$', r'$W_{VS}$', r'$W_{VV}$']
+
+    def simulate(self, z):
+        return mean_field_4n(z, traj=False)
+
+    def reject(self, x):
+        return np.logical_and(0 < x, x < 1e3).all(axis=1)
 
 class Uniform(object):
     def __init__(self, lb, ub):
