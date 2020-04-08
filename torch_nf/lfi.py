@@ -131,7 +131,6 @@ def train_APT(
         batch_buf = np.random.permutation(M_batch)
         j = 0
         for i in range(1, num_iters + 1):
-            print('r', r, 'i', i)
             if M_batch - j < M_atom:
                 batch_buf = np.random.permutation(M_batch)
                 j = 0
@@ -150,10 +149,7 @@ def train_APT(
             log_num = torch.diag(log_prob) - torch.log(q_prior)
             q_div_p = torch.exp(log_prob) / q_prior[None, :]
             denom = torch.sum(q_div_p, axis=1)
-            #dbg_check(denom, 'denom')
             log_denom = torch.log(denom+1e-20)
-            dbg_check(log_num, 'log_num')
-            dbg_check(log_denom, 'log_denom')
             log_q_tilde = log_num - log_denom
             loss = -torch.mean(log_q_tilde)
             _loss = loss.item()
@@ -163,8 +159,6 @@ def train_APT(
 
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
-            #for j, param in enumerate(cnf.parameters()):
-            #    dbg_check(param.grad, 'param.grad %d' % (j+1))
             torch.nn.utils.clip_grad_norm_(cnf.parameters(), 0.1, 2)
             optimizer.step()
 
@@ -187,7 +181,7 @@ def train_APT(
 
         z, q_prop, x = SNPE_proposal(r + 1, M, system, cnf, x0_torch)
         log_q_prop = np.log(q_prop.numpy()+1e-20)
-        zs.append(z)
+        zs.append(z.numpy())
         log_probs.append(log_q_prop)
         if verbose:
             plt.figure()
@@ -197,7 +191,6 @@ def train_APT(
             plt.show()
 
     it_time = np.mean(np.array(it_times))
-    print(it_time)
     losses = np.array(losses)
     zs = np.array(zs)
     log_probs = np.array(log_probs)
