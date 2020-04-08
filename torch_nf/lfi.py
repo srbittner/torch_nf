@@ -29,8 +29,8 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
         q_prior = torch.tensor(system.prior.pdf(z.numpy())).float()
         w = q_prior / q_prop
         w = w / torch.sum(w)
-        print("q_prop", torch.min(q_prop), torch.max(q_prop))
-        print("w", torch.min(w), torch.max(w))
+        #print("q_prop", torch.min(q_prop), torch.max(q_prop))
+        #print("w", torch.min(w), torch.max(w))
         x = system.simulate(z.numpy())
         x = torch.tensor(x).float()
         for i in range(1, num_iters + 1):
@@ -51,29 +51,30 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
             torch.nn.utils.clip_grad_norm_(cnf.parameters(), 0.1, 2)
             optimizer.step()
 
-            if verbose and ((r == 1 and i == 1) or i % (num_iters // 20) == 0):
+            if ((r == 1 and i == 1) or i % (num_iters // 20) == 0):
                 time2 = time.time()
                 it_time = time2-time1
-                it_times.append(it_time)
+                if i % (num_iters // 20) == 0:
+                    it_times.append(it_time)
                 print("r %d, it %d, loss=%.2E, time/it=%.3f" % (r, i, _loss, it_time))
-                if (r != 1 and (i % num_iters) == 0):
-                    #plt.figure()
-                    #plt.plot(-np.array(losses))
-                    #plt.ylim([-losses[100], -losses[-1]])
-                    #plt.show()
+                #if verbose:
+                    #if (r != 1 and (i % num_iters) == 0):
+                        #plt.figure()
+                        #plt.plot(-np.array(losses))
+                        #plt.ylim([-losses[100], -losses[-1]])
+                        #plt.show()
                 if np.isnan(_loss):
                     break
             losses.append(loss.item())
 
-        print('post r')
         z, q_prop = SNPE_proposal(r + 1, M, system, cnf, x0_torch)
-        dbg_check(z, 'z')
-        dbg_check(q_prop, 'q_prop')
+        #dbg_check(z, 'z')
+        #dbg_check(q_prop, 'q_prop')
         z = z.detach().numpy()
         log_q_prop = np.log(q_prop.detach().numpy())
         zs.append(z)
         log_probs.append(log_q_prop)
-        if verbose:
+        #if verbose:
             #plt.figure()
             #plot_dist(z, log_q_prop, z0=z0, z_labels=system.z_labels)
             #plt.show()
