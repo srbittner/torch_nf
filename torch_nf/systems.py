@@ -85,21 +85,33 @@ class MF_V1(System):
 
 class MF_V1_4n(System):
     def __init__(self,):
-        D = 16
+        D = 32
         super(MF_V1_4n, self).__init__(D)
         self.lb = 5.*np.array([0., -1., -1., -1.,
                             0., -1., -1., -1.,
                             0., -1., -1., -1.,
-                            0., -1., -1., -1.])
-        self.ub = 5.*np.array([1., 0., 0., 0.,
-                            1., 0., 0., 0.,
-                            1., 0., 0., 0.,
-                            1., 0., 0., 0.])
+                            0., -1., -1., -1.,
+                            0., 0., 0., 0.,
+                            0., 0., 0., 0.,
+                            0., 0., 0., 0.,
+                            0., 0., 0., 0.,])
+        self.ub = np.array([5., 0., 0., 0.,
+                            5., 0., 0., 0.,
+                            5., 0., 0., 0.,
+                            5., 0., 0., 0.,
+                            2., 2., 2., 2.,
+                            2., 2., 2., 2.,
+                            2., 2., 2., 2.,
+                            2., 2., 2., 2.])
         self.prior = Uniform(self.lb, self.ub)
         self.z_labels = [r'$W_{EE}$', r'$W_{EP}$', r'$W_{ES}$', r'$W_{EV}$', \
                          r'$W_{PE}$', r'$W_{PP}$', r'$W_{PS}$', r'$W_{PV}$', \
                          r'$W_{SE}$', r'$W_{SP}$', r'$W_{SS}$', r'$W_{SV}$', \
-                         r'$W_{VE}$', r'$W_{VP}$', r'$W_{VS}$', r'$W_{VV}$']
+                         r'$W_{VE}$', r'$W_{VP}$', r'$W_{VS}$', r'$W_{VV}$', \
+                         r'$\sigma_{EE}$', r'$\sigma_{EP}$', r'$\sigma_{ES}$', r'$\sigma_{EV}$', \
+                         r'$\sigma_{PE}$', r'$\sigma_{PP}$', r'$\sigma_{PS}$', r'$\sigma_{PV}$', \
+                         r'$\sigma_{SE}$', r'$\sigma_{SP}$', r'$\sigma_{SS}$', r'$\sigma_{SV}$', \
+                         r'$\sigma_{VE}$', r'$\sigma_{VP}$', r'$\sigma_{VS}$', r'$\sigma_{VV}$']
 
     def simulate(self, z):
         return mean_field_4n(z, traj=False)
