@@ -131,6 +131,7 @@ def train_APT(
         batch_buf = np.random.permutation(M_batch)
         j = 0
         for i in range(1, num_iters + 1):
+            print('r', r, 'i', i, flush=True)
             if M_batch - j < M_atom:
                 batch_buf = np.random.permutation(M_batch)
                 j = 0
@@ -147,18 +148,26 @@ def train_APT(
             z_in = z[None, :, :].repeat(M_atom, 1, 1)
             log_prob = cnf.log_prob(z_in, x)
             log_num = torch.diag(log_prob) - torch.log(q_prior)
-            q_div_p = torch.exp(log_prob) / q_prior[None, :]
-            denom = torch.sum(q_div_p, axis=1)
-            log_denom = torch.log(denom+1e-20)
+            dbg_check(log_num, 'log_num')
+            # TODO only save log prior
+            log_q_div_p = log_prob - torch.log(q_prior[None, :])
+            dbg_check(log_q_div_p, 'log_q_div_p') 
+            log_denom = torch.logsumexp(log_q_div_p, axis=1)
+            dbg_check(log_denom, 'log_denom') 
             log_q_tilde = log_num - log_denom
+            dbg_check(log_q_tilde, 'log_q_tilde') 
             loss = -torch.mean(log_q_tilde)
+            dbg_check(loss, 'loss')
             _loss = loss.item()
+            print("loss", i, _loss)
             if np.isnan(_loss):
-                print("\n\nr %d, it %d, loss=%.2E\n\n" % (r, i, _loss), flush=True)
-                break
+                print("r %d, it %d, loss=%.2E" % (r, i, _loss), flush=True)
+                return None, None, None, None, None
 
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
+            for j, param in enumerate(cnf.parameters()):
+                dbg_check(param.grad, 'param.grad %d' % (j+1))
             torch.nn.utils.clip_grad_norm_(cnf.parameters(), 0.1, 2)
             optimizer.step()
 
