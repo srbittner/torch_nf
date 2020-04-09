@@ -16,8 +16,8 @@ class System(object):
     def sample_prior(self, M):
         raise NotImplementedError()
 
-    def reject(self,):
-        raise NotImplementedError()
+    def reject(self, x):
+        return np.ones((x.shape[0],), dtype=bool)
         
 class Gauss(System):
     def __init__(self, D, N):
@@ -38,6 +38,9 @@ class Gauss(System):
         #x = np.reshape(x, (M, self.N*self.D))
         x = np.mean(x, axis=1)
         return x
+
+    def reject(self, x):
+        return np.ones((x.shape[0],), dtype=bool)
 
 class Toy(System):
     def __init__(self, N):
