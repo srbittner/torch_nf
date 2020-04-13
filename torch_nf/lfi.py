@@ -117,21 +117,20 @@ def train_APT(
     for r in range(1, R + 1):
         it_times = []
         z, q_prop, x = SNPE_proposal(r, M, system, cnf, x0_torch)
-        q_prior = torch.tensor(system.prior.pdf(z.numpy())).float()
+        log_q_prior = torch.tensor(system.prior.logpdf(z.numpy())).float()
 
         if r == 1:
             x_all = x
             z_all = z
-            q_prior_all = q_prior
+            log_q_prior_all = log_q_prior
         else:
             x_all = torch.cat((x_all, x), dim=0)
             z_all = torch.cat((z_all, z), dim=0)
-            q_prior_all = torch.cat((q_prior_all, q_prior), dim=0)
+            log_q_prior_all = torch.cat((log_q_prior_all, log_q_prior), dim=0)
         M_batch = M * r
         batch_buf = np.random.permutation(M_batch)
         j = 0
         for i in range(1, num_iters + 1):
-            print('r', r, 'i', i, flush=True)
             if M_batch - j < M_atom:
                 batch_buf = np.random.permutation(M_batch)
                 j = 0
@@ -139,7 +138,7 @@ def train_APT(
             j += M_atom
             z = z_all[batch_inds]
             x = x_all[batch_inds]
-            q_prior = q_prior_all[batch_inds]
+            log_q_prior = log_q_prior_all[batch_inds]
 
             # update the batch norm
             time1 = time.time()
@@ -147,27 +146,15 @@ def train_APT(
 
             z_in = z[None, :, :].repeat(M_atom, 1, 1)
             log_prob = cnf.log_prob(z_in, x)
-            log_num = torch.diag(log_prob) - torch.log(q_prior)
-            dbg_check(log_num, 'log_num')
-            # TODO only save log prior
-            log_q_div_p = log_prob - torch.log(q_prior[None, :])
-            dbg_check(log_q_div_p, 'log_q_div_p') 
+            log_num = torch.diag(log_prob) - log_q_prior
+            log_q_div_p = log_prob - log_q_prior[None, :]
             log_denom = torch.logsumexp(log_q_div_p, axis=1)
-            dbg_check(log_denom, 'log_denom') 
             log_q_tilde = log_num - log_denom
-            dbg_check(log_q_tilde, 'log_q_tilde') 
             loss = -torch.mean(log_q_tilde)
-            dbg_check(loss, 'loss')
             _loss = loss.item()
-            print("loss", i, _loss)
-            if np.isnan(_loss):
-                print("r %d, it %d, loss=%.2E" % (r, i, _loss), flush=True)
-                return None, None, None, None, None
 
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
-            for j, param in enumerate(cnf.parameters()):
-                dbg_check(param.grad, 'param.grad %d' % (j+1))
             torch.nn.utils.clip_grad_norm_(cnf.parameters(), 0.1, 2)
             optimizer.step()
 
@@ -224,7 +211,7 @@ def SNPE_proposal(r, M, system, cnf, x0):
             _q_z = np.exp(_log_q_z.detach().numpy())[0]
 
         _x = system.simulate(_z)
-        valid_inds = system.reject(_x)
+        valid_inds = system.valid_samples(_x)
         _z = _z[valid_inds]
         _q_z = _q_z[valid_inds]
         _x = _x[valid_inds]
@@ -246,3 +233,67 @@ def SNPE_proposal(r, M, system, cnf, x0):
     q_z = torch.tensor(q_z).float()
     x = torch.tensor(x).float()
     return z, q_z, x
+
+
+def ABC_MCMC(N, system, proposal, T_x0, eps):
+    count = 0
+    z_last = system.prior.rvs(1)
+    zs = []
+    T_xs = []
+    n_sims = 0
+    time0 = time.time()
+    while count < N:
+        z = proposal.rvs(z_last)
+        T_x = system.simulate(z)
+        abc_accept = system.abc_accept(T_x, T_x0, eps)
+        if abc_accept:
+            log_p_z = system.prior.logpdf(z)
+            log_p_z_last = system.prior.logpdf(z_last)
+            log_q_z_z_last = proposal.logpdf(z, z_last[0,:])
+            log_q_z_last_z = proposal.logpdf(z_last, z[0,:])
+            log_mh_ratio = log_p_z + log_q_z_last_z - log_p_z_last - log_q_z_z_last
+            if (log_mh_ratio < 0):
+                alpha = np.exp(log_mh_ratio)
+                if np.random.uniform(0., 1.) < alpha:
+                    zs.append(z[0])
+                    T_xs.append(T_x[0])
+                    z_last = z
+                    count += 1
+            else:
+                zs.append(z[0])
+                T_xs.append(T_x[0])
+                z_last = z
+                count += 1
+        else:
+            if (count == 0 and time.time() - time0 > 10):
+                return None, False
+        n_sims += 1
+        print('count=%d\r' % count, end="")
+    return np.array(zs), True
+
+def ABC_SMC(N, system, proposal, T_x0, all_eps):
+    T = all_eps.shape[0]
+    z_last = system.prior.rvs(N)
+    zs = [z_last]
+    T_xs = [system.simulate(z_last)]
+    n_sims = 0
+    for t in range(T):
+        eps = all_eps[t]
+        z_t = []
+        T_x_t = []
+        for i in range(N):
+            count = 0
+            while(True):
+                z_i = proposal.rvs(z_last[i])
+                T_x = system.simulate(z_i[None, :])
+                abc_accept = system.abc_accept(T_x, T_x0, eps)
+                if abc_accept:
+                    z_t.append(z_i)
+                    T_x_t.append(T_x[0])
+                    break
+                count += 1
+                print('t=%d, i=%d, count=%d\r' % (t, i, count), end="")
+        zs.append(np.array(z_t))
+        T_xs.append(np.array(T_x_t))
+        
+    return np.array(zs)
