@@ -16,7 +16,11 @@ class System(object):
     def sample_prior(self, M):
         raise NotImplementedError()
 
-    def reject(self, x):
+    def abc_accept(self, x, x0, eps):
+        rho = np.linalg.norm(x-x0, axis=1)
+        return rho < eps
+
+    def valid_samples(self, x):
         return np.ones((x.shape[0],), dtype=bool)
         
 class Gauss(System):
@@ -39,7 +43,40 @@ class Gauss(System):
         x = np.mean(x, axis=1)
         return x
 
-    def reject(self, x):
+    def valid_samples(self, x):
+        return np.ones((x.shape[0],), dtype=bool)
+
+
+class Mat(System):
+    def __init__(self, d):
+        self.d = d
+        D = (d+1)*d//2
+        super(Mat, self).__init__(D)
+        self.lb = -np.ones((D,))
+        self.ub = np.ones((D,))
+        self.prior = Uniform(self.lb, self.ub)
+
+    def simulate(self, z):
+        M = z.shape[0]
+        x = np.zeros((M, self.d, self.d))
+        ind = 0
+        for i in range(self.d):
+            for j in range(i, self.d):
+                if (i==j):
+                    x[:,i,j] = z[:, ind]
+                x[:, j,i] = z[:,ind]
+                ind += 1
+        e, v = np.linalg.eigh(x)
+        det = np.prod(e, axis=1)
+        trace = np.sum(e, axis=1)
+        T_x = np.stack((det, trace), axis=1)
+        return T_x
+
+    def abc_accept(self, x, x0, eps):
+        diff = x - x0
+        return np.logical_and(np.abs(diff[:,0]) < eps[0], np.abs(diff[:,1]) < eps[1])
+
+    def valid_samples(self, x):
         return np.ones((x.shape[0],), dtype=bool)
 
 class Toy(System):
@@ -115,12 +152,19 @@ class MF_V1_4n(System):
                          r'$\sigma_{PE}$', r'$\sigma_{PP}$', r'$\sigma_{PS}$', r'$\sigma_{PV}$', \
                          r'$\sigma_{SE}$', r'$\sigma_{SP}$', r'$\sigma_{SS}$', r'$\sigma_{SV}$', \
                          r'$\sigma_{VE}$', r'$\sigma_{VP}$', r'$\sigma_{VS}$', r'$\sigma_{VV}$']
+        self.T_x_labels = [r'$\mu_{E}(0)$', r'$\mu_{S}(0)$', r'$\mu_{V}(0)$',
+                           r'$\mu_{E}(6)$', r'$\mu_{S}(6)$', r'$\mu_{V}(6)$',
+                           r'$\mu_{E}(12)$', r'$\mu_{S}(12)$', r'$\mu_{V}(12)$',
+                           r'$\Delta_{E}(0)$', r'$\Delta_{S}(0)$', r'$\Delta_{V}(0)$',
+                           r'$\Delta_{E}(6)$', r'$\Delta_{S}(6)$', r'$\Delta_{V}(6)$',
+                           r'$\Delta_{E}(12)$', r'$\Delta_{S}(12)$', r'$\Delta_{V}(12)$']
 
     def simulate(self, z):
         return mean_field_4n(z, traj=False)
 
-    def reject(self, x):
+    def valid_samples(self, x):
         return np.logical_and(0 < x, x < 1e3).all(axis=1)
+
 
 class Uniform(object):
     def __init__(self, lb, ub):
@@ -138,5 +182,39 @@ class Uniform(object):
         M = z.shape[0]
         p = 1./np.prod(self.ub - self.lb)
         return p*np.ones((M,))
+        
+    def logpdf(self, z):
+        M = z.shape[0]
+        logp = -np.sum(np.log(self.ub - self.lb))
+        return logp*np.ones((M,))
+
+class GaussianProposal(object):
+    def __init__(self, Sigma, lb, ub):
+        self.D = lb.shape[0]
+        self.Sigma = Sigma
+        self.lb = lb
+        self.ub = ub
+        self.L = np.linalg.cholesky(Sigma)
+
+
+    def rvs(self, mu, M=1):
+        zs = []
+        count = 0
+        while (count < M):
+            omega = np.random.normal(0., 1., (self.D,))
+            z = np.matmul(self.L, omega) + mu
+            if np.logical_and(self.lb < z, z < self.ub).all():
+                zs.append(z)
+                count += 1
+        return np.concatenate(zs, axis=0)
+
+    def pdf(self, z, mu):
+        dist = scipy.stats.multivariate_normal(mean=mu, cov=self.Sigma)
+        return dist.pdf(z)
+    
+    def logpdf(self, z, mu):
+        dist = scipy.stats.multivariate_normal(mean=mu, cov=self.Sigma)
+        return dist.logpdf(z)
+
 
 
