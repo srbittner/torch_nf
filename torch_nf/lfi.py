@@ -271,7 +271,7 @@ def ABC_MCMC(N, system, proposal, T_x0, eps):
         print('count=%d\r' % count, end="")
     return np.array(zs), True
 
-def ABC_SMC(N, system, proposal, T_x0, all_eps):
+def ABC_SMC(N, system, proposal, T_x0, all_eps, count_tol=1e6):
     T = all_eps.shape[0]
     z_last = system.prior.rvs(N)
     zs = [z_last]
@@ -293,6 +293,9 @@ def ABC_SMC(N, system, proposal, T_x0, all_eps):
                     break
                 count += 1
                 print('t=%d, i=%d, count=%d\r' % (t, i, count), end="", flush=True)
+                if (count > count_tol):
+                    print('SMC failed after a million proposals.')
+                    return None
         zs.append(np.array(z_t))
         T_xs.append(np.array(T_x_t))
         

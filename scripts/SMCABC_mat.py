@@ -32,9 +32,12 @@ all_eps = np.stack([np.linspace(eps1[i], epsT[i], T) for i in range(len(eps1))],
 N = 100
 time0 = time.time()
 zs = ABC_SMC(N, mat, proposal, T_x0, all_eps)
-time_per_samp = (time.time() - time0)/N
-print(zs.shape)
-xs = mat.simulate(zs[-1])
 
 fname = "SMCABC_mat_d=%d_T=%d_sigma=%.2e_rs=%d.npz" % (d, T, sigma, rs)
-np.savez(fname, zs=zs, xs=xs, time_per_samp=time_per_samp)
+if zs is not None:
+    time_per_samp = (time.time() - time0)/N
+    print(zs.shape)
+    xs = mat.simulate(zs[-1])
+    np.savez(fname, zs=zs, xs=xs, time_per_samp=time_per_samp)
+else:
+    np.savez(fname, zs=0, xs=0, time_per_samp=np.nan)
