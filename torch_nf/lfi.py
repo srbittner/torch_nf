@@ -292,7 +292,7 @@ def ABC_SMC(N, system, proposal, T_x0, all_eps):
                     T_x_t.append(T_x[0])
                     break
                 count += 1
-                print('t=%d, i=%d, count=%d\r' % (t, i, count), end="")
+                print('t=%d, i=%d, count=%d\r' % (t, i, count), end="", flush=True)
         zs.append(np.array(z_t))
         T_xs.append(np.array(T_x_t))
         
