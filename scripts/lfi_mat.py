@@ -56,7 +56,13 @@ cnf, losses, zs, log_probs, it_time = train_APT(
     verbose=False
 )
 
+time0 = time.time()
+cnf(torch.tensor(x0).float(), M)
+time_per_sample = (time.time() - time0)/M
+
 fname = "APT_mat_d=%d_rs=%d.npz" % (d, rs)
 np.savez(
-    fname, x0=x0, losses=losses, zs=zs, log_probs=log_probs, it_time=it_time
+    fname, x0=x0, losses=losses, zs=zs, log_probs=log_probs, 
+    it_time=it_time, time_per_sample=time_per_sample,
 )
+
