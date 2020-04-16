@@ -20,16 +20,16 @@ np.random.seed(rs)
 
 mat = Mat(d)
 T_x0 = np.array([[d/2, 0.]])
-eps = [2., 0.02]
+eps = [0.02, 2.]
 
 Sigma = (sigma**2)*np.eye(mat.D)
 proposal = GaussianProposal(Sigma, mat.lb, mat.ub)
 
-eps1 = [d/2, 2.]
-epsT = [2, 0.02]
+eps1 = [2., d/2]
+epsT = [0.02, 2.]
 all_eps = np.stack([np.linspace(eps1[i], epsT[i], T) for i in range(len(eps1))], axis=1)
 
-N = 100
+N = 50
 time0 = time.time()
 zs = ABC_SMC(N, mat, proposal, T_x0, all_eps)
 

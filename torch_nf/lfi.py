@@ -292,7 +292,7 @@ def ABC_SMC(N, system, proposal, T_x0, all_eps, count_tol=1e6):
                     T_x_t.append(T_x[0])
                     break
                 count += 1
-                print('t=%d, i=%d, count=%d\r' % (t, i, count), end="", flush=True)
+                print('t=%d, i=%d, count=%7d\r' % (t, i, count), end="", flush=True)
                 if (count > count_tol):
                     print('SMC failed after a million proposals.')
                     return None
