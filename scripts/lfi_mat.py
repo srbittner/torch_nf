@@ -25,11 +25,11 @@ mat = Mat(d)
 # Opt params
 M = 2000
 M_atom = 100
-num_iters = 2000
-R = 10
+num_iters = 5000
+R = 6
 
 # data for posterior
-x0 = np.array([[d/2, 0.]])
+x0 = np.array([[0., d/2]])
 
 # two-network arch
 arch_type = 'autoregressive'
