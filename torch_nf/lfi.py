@@ -120,6 +120,7 @@ def train_APT(
         log_q_prior = torch.tensor(system.prior.logpdf(z.numpy())).float()
 
         if r == 1:
+            zs.append(z.numpy())
             x_all = x
             z_all = z
             log_q_prior_all = log_q_prior
