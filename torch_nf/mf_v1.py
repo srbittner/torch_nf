@@ -166,8 +166,8 @@ def mean_field_4n(z, traj=False):
     num_gauss_pts = 50  # Number of points used to estimate Gaussian integrals.
     M = z.shape[0]
     W = np.reshape(z[:,:16], (M, n, n))
-    #sigma = 0.2*np.ones((1,n,n))
-    sigma = np.reshape(z[:,16:], (M, n, n))
+    sigma = 0.2*np.ones((1,n,n))
+    #sigma = np.reshape(z[:,16:], (M, n, n))
 
     # Step size for langevin dynamics consistency equation solver.
     step = 0.5
