@@ -156,8 +156,8 @@ class MF_V1_4n(System):
                                     1., 0., 0., 0.,
                                     1., 0., 0., 0.,
                                     1., 0., 0., 0.])
-        self.lb = np.concatenate((self.lb, -.1*np.ones((4,))), axis=0)
-        self.ub = np.concatenate((self.ub, 1.*np.ones((4,))), axis=0)
+        self.lb = np.concatenate((self.lb, 0.*np.ones((4,))), axis=0)
+        self.ub = np.concatenate((self.ub,  2.*np.ones((4,))), axis=0)
 
         self.prior = Uniform(self.lb, self.ub)
         self.z_labels = [r'$W_{EE}$', r'$W_{EP}$', r'$W_{ES}$', r'$W_{EV}$', \

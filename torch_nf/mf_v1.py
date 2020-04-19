@@ -22,7 +22,7 @@ def IntegralPhi(mu, delta, num_pts=50):
     g_pts = (np.sqrt(2.0) * g_pts)[None, None, None, :]
     g_weights = (g_weights / np.sqrt(np.pi))[None, None, :, None]
 
-    r = mu + delta * g_pts
+    r = mu + np.sqrt(delta) * g_pts
     r[r<0.] = 0.
     phi = r**2
     m = np.matmul(phi, g_weights)[:,:,:,0]
@@ -50,7 +50,7 @@ def IntegralPhiSq(mu, delta, num_pts=50):
     g_pts = (np.sqrt(2.0) * g_pts)[None, None, None, :]
     g_weights = (g_weights / np.sqrt(np.pi))[None, None, :, None]
     
-    r = mu + delta * g_pts
+    r = mu + np.sqrt(delta) * g_pts
     r[r<0.] = 0.
     phi = r**2
     phi_sq = phi**2
@@ -182,7 +182,7 @@ def mean_field_4n(z, traj=False):
     f = np.array([[[0.3], [0.7*0.4], [0.7*0.3], [0.7*0.3]]])  # Relative proportions of populations.
     h = np.tile(b, (1, 1, num_cs))
     for i in range(num_cs): # just E and P
-        h[:, :2, i] = h[:, :2, i] + 0.02 * cs[i]
+        h[:, :2, i] = h[:, :2, i] + 0.01 * cs[i]
 
     lam = 0.5 * np.ones((1, n, 1))  # Noise level (variance of the input).
     lambda_sq = lam ** 2
