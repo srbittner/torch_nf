@@ -225,6 +225,7 @@ def SNPE_proposal(r, M, system, cnf, x0):
             q_z = np.concatenate((q_z, _q_z), axis=0)
             x = np.concatenate((x, _x), axis=0)
         _M += sum(valid_inds)
+        print("M", _M)
 
     z = z[:M]
     q_z = q_z[:M]

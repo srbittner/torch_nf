@@ -126,9 +126,9 @@ class MF_V1(System):
 class MF_V1_4n(System):
     def __init__(self, sigmas=False):
         if sigmas:
-            D = 32
+            D = 36
         else:
-            D = 16
+            D = 20
         super(MF_V1_4n, self).__init__(D)
         if sigmas:
             self.lb = 20.*np.array([0., -1., -1., -1.,
@@ -156,6 +156,8 @@ class MF_V1_4n(System):
                                     1., 0., 0., 0.,
                                     1., 0., 0., 0.,
                                     1., 0., 0., 0.])
+        self.lb = np.concatenate((self.lb, -.1*np.ones((4,))), axis=0)
+        self.ub = np.concatenate((self.ub, 1.*np.ones((4,))), axis=0)
 
         self.prior = Uniform(self.lb, self.ub)
         self.z_labels = [r'$W_{EE}$', r'$W_{EP}$', r'$W_{ES}$', r'$W_{EV}$', \

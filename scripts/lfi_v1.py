@@ -25,7 +25,7 @@ H2 = args.H2
 L = args.L
 U = args.U
 
-M = 100
+M = 2000
 
 system = MF_V1_4n()
 

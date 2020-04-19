@@ -166,6 +166,7 @@ def mean_field_4n(z, traj=False):
     num_gauss_pts = 50  # Number of points used to estimate Gaussian integrals.
     M = z.shape[0]
     W = np.reshape(z[:,:16], (M, n, n))
+    b = z[:,16:][:,:,None]
     sigma = 0.2*np.ones((1,n,n))
     #sigma = np.reshape(z[:,16:], (M, n, n))
 
@@ -179,9 +180,9 @@ def mean_field_4n(z, traj=False):
     num_cs = len(cs)
 
     f = np.array([[[0.3], [0.7*0.4], [0.7*0.3], [0.7*0.3]]])  # Relative proportions of populations.
-    h = np.zeros((1, n, num_cs))
-    for i in range(num_cs):
-        h[0, :, i] = 0.2 + 0.01 * cs[i]
+    h = np.tile(b, (1, 1, num_cs))
+    for i in range(num_cs): # just E and P
+        h[:, :2, i] = h[:, :2, i] + 0.02 * cs[i]
 
     lam = 0.5 * np.ones((1, n, 1))  # Noise level (variance of the input).
     lambda_sq = lam ** 2
