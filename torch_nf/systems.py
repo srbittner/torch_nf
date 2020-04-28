@@ -20,8 +20,8 @@ class System(object):
         rho = np.linalg.norm(x-x0, axis=1)
         return rho < eps
 
-    def valid_samples(self, x):
-        return np.ones((x.shape[0],), dtype=bool)
+    def valid_samples(self, z):
+        return np.ones((z.shape[0],), dtype=bool)
         
 class Gauss(System):
     def __init__(self, D, N):
@@ -43,7 +43,8 @@ class Gauss(System):
         x = np.mean(x, axis=1)
         return x
 
-    def valid_samples(self, x):
+    def valid_samples(self, z):
+        x = self.simulate(z)
         return np.ones((x.shape[0],), dtype=bool)
 
 
@@ -76,7 +77,8 @@ class Mat(System):
         diff = x - x0
         return np.logical_and(np.abs(diff[:,0]) < eps[0], np.abs(diff[:,1]) < eps[1])
 
-    def valid_samples(self, x):
+    def valid_samples(self, z):
+        x = self.simulate(z)
         return np.ones((x.shape[0],), dtype=bool)
 
 class Toy(System):
@@ -179,7 +181,8 @@ class MF_V1_4n(System):
     def simulate(self, z):
         return mean_field_4n(z, traj=False)
 
-    def valid_samples(self, x):
+    def valid_samples(self, z):
+        x = self.simulate(z)
         return np.logical_and(0 < x, x < 1e3).all(axis=1)
 
 

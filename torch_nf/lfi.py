@@ -211,8 +211,8 @@ def SNPE_proposal(r, M, system, cnf, x0):
             _z = _z.detach().numpy()[0]
             _q_z = np.exp(_log_q_z.detach().numpy())[0]
 
+        valid_inds = system.valid_samples(_z)
         _x = system.simulate(_z)
-        valid_inds = system.valid_samples(_x)
         _z = _z[valid_inds]
         _q_z = _q_z[valid_inds]
         _x = _x[valid_inds]
