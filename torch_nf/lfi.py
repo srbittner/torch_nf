@@ -24,6 +24,7 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
     log_probs = []
     optimizer = torch.optim.Adam(cnf.parameters(), lr=1e-3)
     for r in range(1, R + 1):
+        print('r', r)
         it_times = []
         z, q_prop = SNPE_proposal(r, M, system, cnf, x0_torch)
         z, q_prop = z.detach(), q_prop.detach()
@@ -95,6 +96,7 @@ def train_APT(
 ):
     x0_torch = torch.tensor(x0).float()
     losses = []
+    sample_times = []
     if verbose:
         z, q_prop, x = SNPE_proposal(2, M, system, cnf, x0_torch)
         plt.figure()
@@ -115,8 +117,11 @@ def train_APT(
     log_probs = []
     optimizer = torch.optim.Adam(cnf.parameters(), lr=1e-3)
     for r in range(1, R + 1):
+        print('r', r)
         it_times = []
+        time1 = time.time()
         z, q_prop, x = SNPE_proposal(r, M, system, cnf, x0_torch)
+        sample_times.append(time.time() - time1)
         log_q_prior = torch.tensor(system.prior.logpdf(z.numpy())).float()
 
         if r == 1:
@@ -165,7 +170,7 @@ def train_APT(
                 if i % (num_iters // 20) == 0:
                     it_times.append(it_time)
                 print(
-                    "r %d, it %d, loss=%.2E, time/it=%.3f" % (r, i, _loss, it_time),
+                    "r %d, it %d, loss=%.2E, time/it=%.3fs" % (r, i, _loss, it_time),
                     flush=True,
                 )
                 if verbose:
@@ -191,7 +196,8 @@ def train_APT(
     losses = np.array(losses)
     zs = np.array(zs)
     log_probs = np.array(log_probs)
-    return cnf, losses, zs, log_probs, it_time
+    sample_times = np.array(sample_times)
+    return cnf, losses, zs, log_probs, it_time, sample_times
 
 
 def clip_grads(params, clip):
@@ -225,7 +231,7 @@ def SNPE_proposal(r, M, system, cnf, x0):
             q_z = np.concatenate((q_z, _q_z), axis=0)
             x = np.concatenate((x, _x), axis=0)
         _M += sum(valid_inds)
-        print("M", _M)
+        print("Cumulative valid proposals:", _M)
 
     z = z[:M]
     q_z = q_z[:M]
