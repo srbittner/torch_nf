@@ -11,7 +11,7 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
     losses = []
     if verbose:
         print("init")
-        z, q_prop = SNPE_proposal(2, M, system, cnf, x0_torch)
+        z, q_prop, x = SNPE_proposal(2, M, system, cnf, x0_torch)
         dbg_check(z, "z")
         dbg_check(q_prop, "q_prop")
         z = z.detach()
@@ -22,34 +22,31 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
 
     zs = []
     log_probs = []
+    sample_times = []
     optimizer = torch.optim.Adam(cnf.parameters(), lr=1e-3)
     for r in range(1, R + 1):
         print('r', r)
         it_times = []
-        z, q_prop = SNPE_proposal(r, M, system, cnf, x0_torch)
+        time1 = time.time()
+        z, q_prop, x = SNPE_proposal(r, M, system, cnf, x0_torch)
+        sample_times.append(time.time() - time1)
         z, q_prop = z.detach(), q_prop.detach()
         q_prior = torch.tensor(system.prior.pdf(z.numpy())).float()
         w = q_prior / q_prop
         w = w / torch.sum(w)
         print("q_prop", torch.min(q_prop), torch.max(q_prop))
         print("w", torch.min(w), torch.max(w))
-        x = system.simulate(z.numpy())
-        x = torch.tensor(x).float()
         for i in range(1, num_iters + 1):
-            # update the batch norm
             time1 = time.time()
             _, _ = cnf(x, N=1)
 
             log_prob = cnf.log_prob(z[:, None, :], x)
-            # dbg_check(log_prob, 'log_prob')
             loss = -torch.mean(w * log_prob[:, 0])
             _loss = loss.item()
             if np.isnan(_loss):
                 break
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
-            # for j, param in enumerate(cnf.parameters()):
-            #    dbg_check(param.grad, 'param.grad %d' % (j+1))
             torch.nn.utils.clip_grad_norm_(cnf.parameters(), 0.1, 2)
             optimizer.step()
 
@@ -72,9 +69,7 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
                     break
             losses.append(loss.item())
 
-        z, q_prop = SNPE_proposal(r + 1, M, system, cnf, x0_torch)
-        # dbg_check(z, 'z')
-        # dbg_check(q_prop, 'q_prop')
+        z, q_prop, x = SNPE_proposal(r + 1, M, system, cnf, x0_torch)
         z = z.detach().numpy()
         log_q_prop = np.log(q_prop.detach().numpy())
         zs.append(z)
@@ -88,7 +83,7 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
     losses = np.array(losses)
     zs = np.array(zs)
     log_probs = np.array(log_probs)
-    return cnf, losses, zs, log_probs, it_time
+    return cnf, losses, zs, log_probs, it_time, sample_times
 
 
 def train_APT(
