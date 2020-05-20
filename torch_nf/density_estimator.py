@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
+import scipy.stats
 from torch_nf.error_formatters import format_type_err_msg
 from torch_nf.bijectors import RealNVP, MAF, BatchNorm, Affine, Bijector
 from collections import OrderedDict
@@ -73,6 +74,7 @@ class MoG(DensityEstimator):
         Bunch o' stuff.
         """
 
+        self.alpha_softmax = torch.nn.Softmax(dim=1)
         self.count_num_params()
 
         if (not self.conditioner):
@@ -91,11 +93,69 @@ class MoG(DensityEstimator):
         self.__K = val
 
     def _param_init(self,):
-        self.params = None
+        self.params = torch.nn.init.xavier_normal_(
+            torch.zeros(1, self.D_params, requires_grad=True)
+        )
         return None
-    
+
+    def _get_MoG_params(self, params):
+        """
+
+        alpha: [M, K]
+        mu: [M, K, D]
+        Sigma: [M, K, D, D]
+
+        """
+        M = params.shape[0]
+        ind_alpha = 0
+        ind_next = ind_alpha + self.K
+        alpha = self.alpha_softmax(params[:,ind_alpha:ind_next])
+
+        ind_mu = ind_next
+        ind_next = ind_mu + self.K*self.D
+        mu = params[:,ind_mu:ind_next].view(-1, self.K, self.D)
+
+        # Upper triangular factor of covariance.
+        ind_U = ind_next
+        ind_next = ind_U + (self.K*self.D*(self.D+1)//2)
+        _U = params[:, ind_U:ind_next].view(-1, self.K, self.D*(self.D+1)//2)
+
+        U = torch.zeros((M, self.K, self.D, self.D))
+        inds = torch.triu_indices(self.D, self.D)
+        U[:,:,inds[0], inds[1]] = _U
+        # Multiply the factorization with its transpose.
+        U[:,:,range(self.D), range(self.D)] = torch.exp(U[:,:,range(self.D),range(self.D)])
+        UT = torch.transpose(U, 3, 2)
+        Sigma = torch.matmul(UT, U)
+
+        return alpha, mu, Sigma
+        
+    def forward(self, params, N=100):
+        M = params.size(0)
+
+        alpha, mu, Sigma = self._get_MoG_params(params)
+        alpha = alpha.detach().numpy()
+        # Make sure numpy cast retains softmax property.
+        alpha = alpha / np.sum(alpha, axis=1)[:,None]
+        mu = mu.detach().numpy()
+        Sigma = Sigma.detach().numpy()
+
+        z = np.zeros((M, N, self.D))
+        for i in range(M):
+            p_i = alpha[i,:]
+            mult_i = scipy.stats.multinomial(n=1, p=p_i)
+            c_i = np.dot(mult_i.rvs(N), np.arange(self.K))
+            for j in range(N):
+                mu_ij = mu[i,c_i[j]]
+                Sigma_ij = Sigma[i,c_i[j]]
+                gauss_ij = scipy.stats.multivariate_normal(mean=mu_ij, cov=Sigma_ij)
+                z[i,j,:] = gauss_ij.rvs(1)
+        return z
+
     def count_num_params(self,):
-        return None
+        # K*(alpha + mu + Sigma)
+        self.D_params = self.K*(1 + self.D + self.D*(self.D+1)//2) 
+
 
 
 
@@ -211,17 +271,17 @@ class NormFlow(DensityEstimator):
         else:
             self.__num_units = val
 
-    def __call__(self, N=100, params=None, freeze_bn=False):
-        if not self.conditioner:
-            return self.forward(self.params, N, freeze_bn=freeze_bn)
-        else:
-            return self.forward(params, N, freeze_bn=freeze_bn)
-
     def _param_init(self,):
         self.params = torch.nn.init.xavier_normal_(
             torch.zeros(1, self.D_params, requires_grad=True)
         )
         return None
+
+    def __call__(self, N=100, params=None, freeze_bn=False):
+        if not self.conditioner:
+            return self.forward(self.params, N, freeze_bn=freeze_bn)
+        else:
+            return self.forward(params, N, freeze_bn=freeze_bn)
 
     def forward(self, params, N=100, freeze_bn=False):
         M = params.size(0)

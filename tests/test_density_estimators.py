@@ -54,6 +54,26 @@ def test_MoG():
     assert mog.D == D
     assert not conditioner
     assert mog.K == K
+
+   
+    K = 3
+    conditioner = True
+    M = 50
+    mog = de.MoG(D, conditioner, K)
+    mog.count_num_params()
+
+    params = torch.normal(0., 1., (M, mog.D_params))
+    alpha, mu, Sigma = mog._get_MoG_params(params)
+
+    assert np.isclose(alpha.sum(1).numpy(), 1.).all()
+    for m in range(M):
+        for k in range(K):
+            Sigma_mk = Sigma[m,k,:,:]
+            assert (Sigma_mk[range(D),range(D)] >= 0.).all()
+            assert np.isclose(Sigma_mk, Sigma_mk.T).all()
+
+    z = mog.forward(params, N=10)
+
     return None
 
 
