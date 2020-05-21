@@ -92,8 +92,7 @@ class ConditionalDensityEstimator(torch.nn.Module):
         if type(self.density_estimator) == de.NormFlow:
             z, log_q_z = self.density_estimator(N=N, params=params, freeze_bn=freeze_bn)
         else:
-            z = self.density_estimator(N=N, params=params)
-            log_q_z = None
+            z, log_q_z = self.density_estimator(N=N, params=params)
         return z, log_q_z
 
     def log_prob(self, z, x):

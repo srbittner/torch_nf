@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import scipy.stats
-from torch_nf.error_formatters import format_type_err_msg
+from torch_nf.error_formatters import format_type_err_msg, dbg_check
 from torch_nf.bijectors import RealNVP, MAF, BatchNorm, Affine, Bijector
 from collections import OrderedDict
 import time
@@ -98,7 +98,7 @@ class MoG(DensityEstimator):
         )
         return None
 
-    def _get_MoG_params(self, params):
+    def _get_MoG_params(self, params, numpy=False):
         """
 
         alpha: [M, K]
@@ -126,7 +126,14 @@ class MoG(DensityEstimator):
         # Multiply the factorization with its transpose.
         U[:,:,range(self.D), range(self.D)] = torch.exp(U[:,:,range(self.D),range(self.D)])
         UT = torch.transpose(U, 3, 2)
-        Sigma = torch.matmul(UT, U)
+        Sigma = torch.matmul(UT, U) + .001*torch.eye(self.D)[None, None, :, :]
+
+        if (numpy):
+            alpha = alpha.detach().numpy()
+            # Make sure numpy cast retains softmax property.
+            alpha = alpha / np.sum(alpha, axis=1)[:,None]
+            mu = mu.detach().numpy()
+            Sigma = Sigma.detach().numpy()
 
         return alpha, mu, Sigma
         
@@ -134,11 +141,12 @@ class MoG(DensityEstimator):
         M = params.size(0)
 
         alpha, mu, Sigma = self._get_MoG_params(params)
-        alpha = alpha.detach().numpy()
-        # Make sure numpy cast retains softmax property.
-        alpha = alpha / np.sum(alpha, axis=1)[:,None]
-        mu = mu.detach().numpy()
-        Sigma = Sigma.detach().numpy()
+
+        dbg_check(alpha, 'alpha')
+        dbg_check(mu, 'mu')
+        dbg_check(Sigma, 'Sigma')
+
+        alpha, mu, Sigma = self._get_MoG_params(params, numpy=True)
 
         z = np.zeros((M, N, self.D))
         for i in range(M):
@@ -150,7 +158,28 @@ class MoG(DensityEstimator):
                 Sigma_ij = Sigma[i,c_i[j]]
                 gauss_ij = scipy.stats.multivariate_normal(mean=mu_ij, cov=Sigma_ij)
                 z[i,j,:] = gauss_ij.rvs(1)
-        return z
+
+        log_q_z = self.log_prob_np(z, params)
+
+        return z, log_q_z
+
+    def log_prob_np(self, z, params=None):
+        M, N, _ = z.shape
+        alpha, mu, Sigma = self._get_MoG_params(params, numpy=True)
+        q_z = np.zeros((M,N))
+        for i in range(M):
+            alpha_i = alpha[i]
+            gaussians_i = []
+            for k in range(self.K):
+                gaussians_i.append(scipy.stats.multivariate_normal(mean=mu[i,k], cov=Sigma[i,k]))
+            for j in range(N):
+                for k in range(self.K):
+                    q_z[i,j] += alpha_i[k]*gaussians_i[k].pdf(z[i,j])
+        log_q_z = np.log(q_z)
+        return log_q_z
+
+    def log_prob(self, z, params=None):
+        return self.log_prob_np(z, params)
 
     def count_num_params(self,):
         # K*(alpha + mu + Sigma)

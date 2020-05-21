@@ -3,99 +3,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torch_nf.util import plot_dist
 from torch_nf.error_formatters import dbg_check
+import torch_nf.density_estimator as de
 import time
 
-
-def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=None):
-    x0_torch = torch.tensor(x0).float()
-    losses = []
-    if verbose:
-        print("init")
-        z, q_prop, x = SNPE_proposal(2, M, system, cnf, x0_torch)
-        dbg_check(z, "z")
-        dbg_check(q_prop, "q_prop")
-        z = z.detach()
-        q_prop = q_prop.detach()
-        plt.figure()
-        plot_dist(z.numpy(), np.log(q_prop.numpy()), z0=z0, z_labels=system.z_labels)
-        plt.show()
-
-    zs = []
-    log_probs = []
-    sample_times = []
-    optimizer = torch.optim.Adam(cnf.parameters(), lr=1e-3)
-    for r in range(1, R + 1):
-        print('r', r)
-        it_times = []
-        time1 = time.time()
-        z, q_prop, x = SNPE_proposal(r, M, system, cnf, x0_torch)
-        sample_times.append(time.time() - time1)
-        z, q_prop = z.detach(), q_prop.detach()
-        q_prior = torch.tensor(system.prior.pdf(z.numpy())).float()
-        w = q_prior / q_prop
-        w = w / torch.sum(w)
-        print("q_prop", torch.min(q_prop), torch.max(q_prop))
-        print("w", torch.min(w), torch.max(w))
-        for i in range(1, num_iters + 1):
-            time1 = time.time()
-            _, _ = cnf(x, N=1)
-
-            log_prob = cnf.log_prob(z[:, None, :], x)
-            loss = -torch.mean(w * log_prob[:, 0])
-            _loss = loss.item()
-            if np.isnan(_loss):
-                break
-            optimizer.zero_grad()
-            loss.backward(retain_graph=True)
-            torch.nn.utils.clip_grad_norm_(cnf.parameters(), 0.1, 2)
-            optimizer.step()
-
-            if (r == 1 and i == 1) or i % (num_iters // 20) == 0:
-                time2 = time.time()
-                it_time = time2 - time1
-                if i % (num_iters // 20) == 0:
-                    it_times.append(it_time)
-                print(
-                    "r %d, it %d, loss=%.2E, time/it=%.3f" % (r, i, _loss, it_time),
-                    flush=True,
-                )
-                if verbose:
-                    if r != 1 and (i % num_iters) == 0:
-                        plt.figure()
-                        plt.plot(-np.array(losses))
-                        plt.ylim([-losses[100], -losses[-1]])
-                        plt.show()
-                if np.isnan(_loss):
-                    break
-            losses.append(loss.item())
-
-        z, q_prop, x = SNPE_proposal(r + 1, M, system, cnf, x0_torch)
-        z = z.detach().numpy()
-        log_q_prop = np.log(q_prop.detach().numpy())
-        zs.append(z)
-        log_probs.append(log_q_prop)
-        if verbose:
-            plt.figure()
-            plot_dist(z, log_q_prop, z0=z0, z_labels=system.z_labels)
-            plt.show()
-
-    it_time = np.mean(np.array(it_times))
-    losses = np.array(losses)
-    zs = np.array(zs)
-    log_probs = np.array(log_probs)
-    return cnf, losses, zs, log_probs, it_time, sample_times
-
-
 def train_APT(
-    cnf, system, x0, M=500, M_atom=100, R=10, num_iters=1000, z0=None, verbose=True
+    cde, system, x0, M=500, M_atom=100, R=10, num_iters=1000, z0=None, verbose=True
 ):
     x0_torch = torch.tensor(x0).float()
+    has_norm_flow = (type(cde.density_estimator) == de.NormFlow)
+    has_MoG = (type(cde.density_estimator) == de.MoG)
     losses = []
     sample_times = []
     if verbose:
-        z, q_prop, x = SNPE_proposal(2, M, system, cnf, x0_torch)
+        z, q_prop, x = SNPE_proposal(2, M, system, cde, x0_torch)
         plt.figure()
-        if cnf.nf.D > 8:
+        if cde.density_estimator.D > 8:
             plot_inds = [i for i in range(8)]
         else:
             plot_inds = None
@@ -110,53 +32,112 @@ def train_APT(
 
     zs = []
     log_probs = []
-    optimizer = torch.optim.Adam(cnf.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(cde.parameters(), lr=1e-3)
     for r in range(1, R + 1):
         print('r', r)
         it_times = []
         time1 = time.time()
-        z, q_prop, x = SNPE_proposal(r, M, system, cnf, x0_torch)
+        z, q_prop, x = SNPE_proposal(r, M, system, cde, x0_torch)
         sample_times.append(time.time() - time1)
         log_q_prior = torch.tensor(system.prior.logpdf(z.numpy())).float()
 
+        # APT with MoG needs gaussian proposal params.
+        if has_MoG:
+            params = cde.param_net(x)
+            alpha_prop, mu_prop, Sigma_prop = cde.density_estimator._get_MoG_params(params)
+            alpha_prop = alpha_prop.detach()
+            mu_prop = mu_prop.detach()
+            Sigma_prop = Sigma_prop.detach()
+
         if r == 1:
-            zs.append(z.numpy())
             x_all = x
             z_all = z
             log_q_prior_all = log_q_prior
+            if (has_MoG):
+                alpha_prop_all = alpha_prop
+                mu_prop_all = mu_prop
+                Sigma_prop_inv_all = torch.inverse(Sigma_prop)
+
+            zs.append(z.numpy())
+            log_probs.append(log_q_prior.numpy())
         else:
             x_all = torch.cat((x_all, x), dim=0)
             z_all = torch.cat((z_all, z), dim=0)
             log_q_prior_all = torch.cat((log_q_prior_all, log_q_prior), dim=0)
-        M_batch = M * r
-        batch_buf = np.random.permutation(M_batch)
-        j = 0
+
+            if (has_MoG):
+                alpha_prop_all = torch.cat((alpha_prop_all, alpha_prop), dim=0)
+                mu_prop_all = torch.cat((mu_prop_all, mu_prop), dim=0)
+                Sigma_prop_inv_all = torch.cat(
+                    (Sigma_prop_inv_all, torch.inverse(Sigma_prop)), 
+                    dim=0
+                )
+
+        # Need to mini-batch for norm flows.
+        if has_norm_flow:
+            M_batch = M * r
+            batch_buf = np.random.permutation(M_batch)
+            j = 0
+
         for i in range(1, num_iters + 1):
-            if M_batch - j < M_atom:
-                batch_buf = np.random.permutation(M_batch)
-                j = 0
-            batch_inds = batch_buf[j : (j + M_atom)]
-            j += M_atom
-            z = z_all[batch_inds]
-            x = x_all[batch_inds]
-            log_q_prior = log_q_prior_all[batch_inds]
+            print('i', i)
+            if has_norm_flow:
+                if M_batch - j < M_atom:
+                    batch_buf = np.random.permutation(M_batch)
+                    j = 0
+                batch_inds = batch_buf[j : (j + M_atom)]
+                j += M_atom
+                z = z_all[batch_inds]
+                x = x_all[batch_inds]
+                log_q_prior = log_q_prior_all[batch_inds]
+            if has_MoG:
+                z = z_all
+                x = x_all
+                alpha_prop = alpha_prop_all
+                mu_prop = mu_prop_all
+                Sigma_prop_inv = Sigma_prop_inv_all
+                
 
-            # update the batch norm
             time1 = time.time()
-            _, _ = cnf(x, N=1)
 
-            z_in = z[None, :, :].repeat(M_atom, 1, 1)
-            log_prob = cnf.log_prob(z_in, x)
-            log_num = torch.diag(log_prob) - log_q_prior
-            log_q_div_p = log_prob - log_q_prior[None, :]
-            log_denom = torch.logsumexp(log_q_div_p, axis=1)
-            log_q_tilde = log_num - log_denom
+            if has_norm_flow:
+                # update the batch norm
+                _, _ = cde(x, N=1)
+                z_in = z[None, :, :].repeat(M_atom, 1, 1)
+                log_prob = cde.log_prob(z_in, x)
+                log_num = torch.diag(log_prob) - log_q_prior
+                log_q_div_p = log_prob - log_q_prior[None, :]
+                log_denom = torch.logsumexp(log_q_div_p, axis=1)
+                log_q_tilde = log_num - log_denom
+            else:
+                params = cde.param_net(x)
+                dbg_check(params, 'params')
+                alpha, mu, Sigma = cde.density_estimator._get_MoG_params(params)
+                mu0 = np.zeros((system.D,))
+                Sigma0_inv = np.eye(system.D) / 10.
+                log_q_tilde = MoG_proposal_posterior(
+                    z,
+                    mu0,
+                    Sigma0_inv,
+                    alpha,
+                    mu,
+                    Sigma,
+                    alpha_prop,
+                    mu_prop,
+                    Sigma_prop_inv,
+                )
+                dbg_check(log_q_tilde, 'log_q_tilde')
+                
+
             loss = -torch.mean(log_q_tilde)
+            dbg_check(loss, 'loss')
             _loss = loss.item()
 
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
-            torch.nn.utils.clip_grad_norm_(cnf.parameters(), 0.1, 2)
+            for ii, param in enumerate(cde.parameters()):
+                dbg_check(param.grad, 'param %d' % ii)
+            torch.nn.utils.clip_grad_norm_(cde.parameters(), 0.1, 2)
             optimizer.step()
 
             if (r == 1 and i == 1) or i % (num_iters // 20) == 0:
@@ -176,7 +157,7 @@ def train_APT(
                         plt.show()
             losses.append(loss.item())
 
-        z, q_prop, x = SNPE_proposal(r + 1, M, system, cnf, x0_torch)
+        z, q_prop, x = SNPE_proposal(r + 1, M, system, cde, x0_torch)
         log_q_prop = np.log(q_prop.numpy()+1e-20)
         zs.append(z.numpy())
         log_probs.append(log_q_prop)
@@ -192,7 +173,75 @@ def train_APT(
     zs = np.array(zs)
     log_probs = np.array(log_probs)
     sample_times = np.array(sample_times)
-    return cnf, losses, zs, log_probs, it_time, sample_times
+    return cde, losses, zs, log_probs, it_time, sample_times
+
+def MoG_proposal_posterior(
+    z, 
+    mu0,
+    Sigma0_inv,
+    alpha,
+    mu,
+    Sigma,
+    alpha_prop,
+    mu_prop,
+    Sigma_prop_inv,
+):
+    K = alpha.shape[1]
+
+    _z = z[:,None,None,:,None]
+
+    _alpha = alpha[:,:,None]
+    _alpha_prop = alpha_prop[:,None,:]
+
+    _mu = mu[:,:,None,:,None]
+    _mu_prop = mu_prop[:,None,:,:,None]
+    _mu0 = torch.tensor(mu0[None,None,None,:,None]).float()
+
+    _Sigma = Sigma[:,:,None,:,:]
+    Sigma_inv = torch.inverse(Sigma)
+    _Sigma_inv = Sigma_inv[:,:,None,:,:]
+    _Sigma_prop_inv = Sigma_prop_inv[:,None,:,:,:]
+    _Sigma0_inv = torch.tensor(Sigma0_inv[None,None,None,:,:]).float()
+
+
+    # (M, K, K, D, D)
+    Sigma_star_inv =  _Sigma_inv + _Sigma_prop_inv - _Sigma0_inv
+    Sigma_star =  torch.inverse(Sigma_star_inv)
+
+
+
+    mu_star = torch.matmul(
+        Sigma_star,
+        torch.matmul(_Sigma_inv, _mu) + \
+        torch.matmul(_Sigma_prop_inv, _mu_prop) - \
+        torch.matmul(_Sigma0_inv, _mu0)
+    )
+
+    mu_starT = torch.transpose(mu_star, 4, 3)
+    _muT = torch.transpose(_mu, 4, 3)
+    _mu_propT = torch.transpose(_mu_prop, 4, 3)
+
+    exponent = torch.matmul(torch.matmul(mu_starT, Sigma_star_inv), mu_star) + \
+        torch.matmul(torch.matmul(_muT, _Sigma_inv), _mu) + \
+        torch.matmul(torch.matmul(_mu_propT, _Sigma_prop_inv), _mu_prop)
+    exp_factor = torch.exp(-0.5*exponent[:,:,:,0,0])
+
+    det_Sigma_star = torch.det(Sigma_star)
+    det_Sigma = torch.det(_Sigma)
+    det_Sigma_prop = 1. / torch.det(_Sigma_prop_inv)
+
+    gamma = torch.sqrt(det_Sigma_star / (det_Sigma*det_Sigma_prop))
+    gamma = gamma*exp_factor
+    gamma = _alpha*_alpha_prop*gamma
+    gamma = gamma / torch.sum(gamma, dim=(1,2), keepdim=True)
+
+    z_mu = _z - mu_star
+    z_mu_T = torch.transpose(z_mu, 4, 3)
+    gauss_probs_num = torch.exp(-0.5*torch.matmul(torch.matmul(z_mu_T, Sigma_star_inv), z_mu))
+    gauss_probs =  gauss_probs_num[:,:,:,0,0] / torch.sqrt(((2*np.pi)**K)*torch.det(Sigma_star))
+
+    log_q_tilde = torch.sum(gamma*gauss_probs, dim=(1,2))
+    return log_q_tilde
 
 
 def clip_grads(params, clip):
@@ -201,14 +250,14 @@ def clip_grads(params, clip):
     return None
 
 
-def SNPE_proposal(r, M, system, cnf, x0):
+def SNPE_proposal(r, M, system, cde, x0):
     _M = 0
     while _M < M:
         if r == 1:
             _z = system.prior.rvs(M)
             _q_z = system.prior.pdf(_z)
         else:
-            _z, _log_q_z = cnf(x=x0, N=M, freeze_bn=True)
+            _z, _log_q_z = cde(x=x0, N=M, freeze_bn=True)
             _z = _z.detach().numpy()[0]
             _q_z = np.exp(_log_q_z.detach().numpy())[0]
 
@@ -303,3 +352,86 @@ def ABC_SMC(N, system, proposal, T_x0, all_eps, count_tol=1e6):
         T_xs.append(np.array(T_x_t))
         
     return np.array(zs)
+
+
+
+def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=None):
+    x0_torch = torch.tensor(x0).float()
+    losses = []
+    if verbose:
+        print("init")
+        z, q_prop, x = SNPE_proposal(2, M, system, cnf, x0_torch)
+        dbg_check(z, "z")
+        dbg_check(q_prop, "q_prop")
+        z = z.detach()
+        q_prop = q_prop.detach()
+        plt.figure()
+        plot_dist(z.numpy(), np.log(q_prop.numpy()), z0=z0, z_labels=system.z_labels)
+        plt.show()
+
+    zs = []
+    log_probs = []
+    sample_times = []
+    optimizer = torch.optim.Adam(cnf.parameters(), lr=1e-3)
+    for r in range(1, R + 1):
+        print('r', r)
+        it_times = []
+        time1 = time.time()
+        z, q_prop, x = SNPE_proposal(r, M, system, cnf, x0_torch)
+        sample_times.append(time.time() - time1)
+        z, q_prop = z.detach(), q_prop.detach()
+        q_prior = torch.tensor(system.prior.pdf(z.numpy())).float()
+        w = q_prior / q_prop
+        w = w / torch.sum(w)
+        print("q_prop", torch.min(q_prop), torch.max(q_prop))
+        print("w", torch.min(w), torch.max(w))
+        for i in range(1, num_iters + 1):
+            time1 = time.time()
+            _, _ = cnf(x, N=1)
+
+            log_prob = cnf.log_prob(z[:, None, :], x)
+            loss = -torch.mean(w * log_prob[:, 0])
+            _loss = loss.item()
+            if np.isnan(_loss):
+                break
+            optimizer.zero_grad()
+            loss.backward(retain_graph=True)
+            torch.nn.utils.clip_grad_norm_(cnf.parameters(), 0.1, 2)
+            optimizer.step()
+
+            if (r == 1 and i == 1) or i % (num_iters // 20) == 0:
+                time2 = time.time()
+                it_time = time2 - time1
+                if i % (num_iters // 20) == 0:
+                    it_times.append(it_time)
+                print(
+                    "r %d, it %d, loss=%.2E, time/it=%.3f" % (r, i, _loss, it_time),
+                    flush=True,
+                )
+                if verbose:
+                    if r != 1 and (i % num_iters) == 0:
+                        plt.figure()
+                        plt.plot(-np.array(losses))
+                        plt.ylim([-losses[100], -losses[-1]])
+                        plt.show()
+                if np.isnan(_loss):
+                    break
+            losses.append(loss.item())
+
+        z, q_prop, x = SNPE_proposal(r + 1, M, system, cnf, x0_torch)
+        z = z.detach().numpy()
+        log_q_prop = np.log(q_prop.detach().numpy())
+        zs.append(z)
+        log_probs.append(log_q_prop)
+        if verbose:
+            plt.figure()
+            plot_dist(z, log_q_prop, z0=z0, z_labels=system.z_labels)
+            plt.show()
+
+    it_time = np.mean(np.array(it_times))
+    losses = np.array(losses)
+    zs = np.array(zs)
+    log_probs = np.array(log_probs)
+    return cnf, losses, zs, log_probs, it_time, sample_times
+
+
