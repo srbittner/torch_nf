@@ -80,16 +80,23 @@ def train_APT(
             j = 0
 
         for i in range(1, num_iters + 1):
-            print('i', i)
+            print(42*'*')
+            print('r', r, 'i', i)
+            print(42*'*')
             if has_norm_flow:
-                if M_batch - j < M_atom:
-                    batch_buf = np.random.permutation(M_batch)
-                    j = 0
-                batch_inds = batch_buf[j : (j + M_atom)]
-                j += M_atom
-                z = z_all[batch_inds]
-                x = x_all[batch_inds]
-                log_q_prior = log_q_prior_all[batch_inds]
+                if r==1:
+                    z = z_all
+                    x = x_all
+                    log_q_prior = log_q_prior_all
+                else:
+                    if M_batch - j < M_atom:
+                        batch_buf = np.random.permutation(M_batch)
+                        j = 0
+                    batch_inds = batch_buf[j : (j + M_atom)]
+                    j += M_atom
+                    z = z_all[batch_inds]
+                    x = x_all[batch_inds]
+                    log_q_prior = log_q_prior_all[batch_inds]
             if has_MoG:
                 z = z_all
                 x = x_all
@@ -103,40 +110,54 @@ def train_APT(
             if has_norm_flow:
                 # update the batch norm
                 _, _ = cde(x, N=1)
-                z_in = z[None, :, :].repeat(M_atom, 1, 1)
-                log_prob = cde.log_prob(z_in, x)
-                log_num = torch.diag(log_prob) - log_q_prior
-                log_q_div_p = log_prob - log_q_prior[None, :]
-                log_denom = torch.logsumexp(log_q_div_p, axis=1)
-                log_q_tilde = log_num - log_denom
+                if (r==1):
+                    log_prob = cde.log_prob(z[:,None,:], x)
+                    print('log_prob', log_prob.shape)
+                    log_q_tilde = log_prob
+                else:
+                    z_in = z[None, :, :].repeat(M_atom, 1, 1)
+                    log_prob = cde.log_prob(z_in, x)
+                    log_num = torch.diag(log_prob) - log_q_prior
+                    log_q_div_p = log_prob - log_q_prior[None, :]
+                    log_denom = torch.logsumexp(log_q_div_p, axis=1)
+                    log_q_tilde = log_num - log_denom
+                    print('log_q_tilde', log_q_tilde.shape)
             else:
-                params = cde.param_net(x)
-                dbg_check(params, 'params')
-                alpha, mu, Sigma = cde.density_estimator._get_MoG_params(params)
-                mu0 = np.zeros((system.D,))
-                Sigma0_inv = np.eye(system.D) / 10.
-                log_q_tilde = MoG_proposal_posterior(
-                    z,
-                    mu0,
-                    Sigma0_inv,
-                    alpha,
-                    mu,
-                    Sigma,
-                    alpha_prop,
-                    mu_prop,
-                    Sigma_prop_inv,
-                )
-                dbg_check(log_q_tilde, 'log_q_tilde')
-                
+                if (r==1):
+                    log_prob = cde.log_prob(z_in, x)
+                    log_q_tilde = log_prob
+                else:
+                    params = cde.param_net(x)
+                    #dbg_check(params, 'params')
+                    alpha, mu, Sigma = cde.density_estimator._get_MoG_params(params)
+                    mu0 = torch.zeros((system.D,)).float()
+                    Sigma0_inv = torch.zeros((system.D, system.D)).float()
+                    log_q_tilde = MoG_proposal_posterior(
+                        z,
+                        mu0,
+                        Sigma0_inv,
+                        alpha,
+                        mu,
+                        Sigma,
+                        alpha_prop,
+                        mu_prop,
+                        Sigma_prop_inv,
+                    )
+                    #dbg_check(log_q_tilde, 'log_q_tilde')
 
             loss = -torch.mean(log_q_tilde)
             dbg_check(loss, 'loss')
             _loss = loss.item()
+            print('loss', _loss)
+            if (np.isnan(_loss)):
+                break
 
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
-            for ii, param in enumerate(cde.parameters()):
-                dbg_check(param.grad, 'param %d' % ii)
+            #for ii, param in enumerate(cde.parameters()):
+            #    dbg_check(param, 'param %d' % ii)
+            #for ii, param in enumerate(cde.parameters()):
+            #    dbg_check(param.grad, 'param grad %d' % ii)
             torch.nn.utils.clip_grad_norm_(cde.parameters(), 0.1, 2)
             optimizer.step()
 
@@ -195,20 +216,17 @@ def MoG_proposal_posterior(
 
     _mu = mu[:,:,None,:,None]
     _mu_prop = mu_prop[:,None,:,:,None]
-    _mu0 = torch.tensor(mu0[None,None,None,:,None]).float()
+    _mu0 = mu0[None,None,None,:,None]
 
     _Sigma = Sigma[:,:,None,:,:]
     Sigma_inv = torch.inverse(Sigma)
     _Sigma_inv = Sigma_inv[:,:,None,:,:]
     _Sigma_prop_inv = Sigma_prop_inv[:,None,:,:,:]
-    _Sigma0_inv = torch.tensor(Sigma0_inv[None,None,None,:,:]).float()
-
+    _Sigma0_inv = Sigma0_inv[None,None,None,:,:]
 
     # (M, K, K, D, D)
     Sigma_star_inv =  _Sigma_inv + _Sigma_prop_inv - _Sigma0_inv
     Sigma_star =  torch.inverse(Sigma_star_inv)
-
-
 
     mu_star = torch.matmul(
         Sigma_star,
@@ -226,9 +244,17 @@ def MoG_proposal_posterior(
         torch.matmul(torch.matmul(_mu_propT, _Sigma_prop_inv), _mu_prop)
     exp_factor = torch.exp(-0.5*exponent[:,:,:,0,0])
 
-    det_Sigma_star = torch.det(Sigma_star)
+    det_Sigma_star = 1. / torch.det(Sigma_star_inv)
     det_Sigma = torch.det(_Sigma)
     det_Sigma_prop = 1. / torch.det(_Sigma_prop_inv)
+    print('min dets')
+    print(torch.min(det_Sigma_star))
+    print(torch.min(det_Sigma))
+    print(torch.min(det_Sigma_prop))
+    print('max dets')
+    print(torch.max(det_Sigma_star))
+    print(torch.max(det_Sigma))
+    print(torch.max(det_Sigma_prop))
 
     gamma = torch.sqrt(det_Sigma_star / (det_Sigma*det_Sigma_prop))
     gamma = gamma*exp_factor
@@ -361,8 +387,8 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
     if verbose:
         print("init")
         z, q_prop, x = SNPE_proposal(2, M, system, cnf, x0_torch)
-        dbg_check(z, "z")
-        dbg_check(q_prop, "q_prop")
+        #dbg_check(z, "z")
+        #dbg_check(q_prop, "q_prop")
         z = z.detach()
         q_prop = q_prop.detach()
         plt.figure()
