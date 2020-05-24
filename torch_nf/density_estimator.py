@@ -9,15 +9,10 @@ import time
 
 
 class DensityEstimator(object):
-    def __init__(
-        self,
-        D,
-        conditioner=False,
-    ):
+    def __init__(self, D, conditioner=False):
         super().__init__()
         self.D = D
         self.conditioner = conditioner
-
 
     @property
     def D(self,):
@@ -41,7 +36,6 @@ class DensityEstimator(object):
             raise TypeError(format_type_err_msg(self, "conditioner", val, bool))
         self.__conditioner = val
 
-
     def __call__(self, N=100, params=None):
         if not self.conditioner:
             return self.forward(self.params, N)
@@ -60,16 +54,12 @@ class DensityEstimator(object):
     def _param_init(self,):
         raise NotImplementedError()
 
+
 class MoG(DensityEstimator):
-    def __init__(
-        self,
-        D,
-        conditioner=False,
-        K=1,
-    ):
+    def __init__(self, D, conditioner=False, K=1):
         super().__init__(D, conditioner)
         self.K = K
-        
+
         """
         Bunch o' stuff.
         """
@@ -77,7 +67,7 @@ class MoG(DensityEstimator):
         self.alpha_softmax = torch.nn.Softmax(dim=1)
         self.count_num_params()
 
-        if (not self.conditioner):
+        if not self.conditioner:
             self._param_init()
 
     @property
@@ -103,89 +93,116 @@ class MoG(DensityEstimator):
 
         alpha: [M, K]
         mu: [M, K, D]
-        Sigma: [M, K, D, D]
+        Sigma_inv: [M, K, D, D]
+        Sigma_det: [M, K]
 
         """
         M = params.shape[0]
         ind_alpha = 0
         ind_next = ind_alpha + self.K
-        alpha = self.alpha_softmax(params[:,ind_alpha:ind_next])
+        alpha = self.alpha_softmax(params[:, ind_alpha:ind_next])
 
         ind_mu = ind_next
-        ind_next = ind_mu + self.K*self.D
-        mu = params[:,ind_mu:ind_next].view(-1, self.K, self.D)
+        ind_next = ind_mu + self.K * self.D
+        mu = params[:, ind_mu:ind_next].view(-1, self.K, self.D)
 
         # Upper triangular factor of covariance.
         ind_U = ind_next
-        ind_next = ind_U + (self.K*self.D*(self.D+1)//2)
-        _U = params[:, ind_U:ind_next].view(-1, self.K, self.D*(self.D+1)//2)
+        ind_next = ind_U + (self.K * self.D * (self.D + 1) // 2)
+        _U = params[:, ind_U:ind_next].view(-1, self.K, self.D * (self.D + 1) // 2)
 
         U = torch.zeros((M, self.K, self.D, self.D))
         inds = torch.triu_indices(self.D, self.D)
-        U[:,:,inds[0], inds[1]] = _U
+        U[:, :, inds[0], inds[1]] = _U
         # Multiply the factorization with its transpose.
-        U[:,:,range(self.D), range(self.D)] = torch.exp(U[:,:,range(self.D),range(self.D)])
+        U_diag_in = U[:, :, range(self.D), range(self.D)]
+        U[:, :, range(self.D), range(self.D)] = torch.exp(U_diag_in)
         UT = torch.transpose(U, 3, 2)
-        Sigma = torch.matmul(UT, U) + .001*torch.eye(self.D)[None, None, :, :]
+        Sigma_inv = torch.matmul(UT, U)
+        Sigma_det = torch.prod(torch.exp(-2.*U_diag_in), dim=2)
 
-        if (numpy):
+        if numpy:
             alpha = alpha.detach().numpy()
             # Make sure numpy cast retains softmax property.
-            alpha = alpha / np.sum(alpha, axis=1)[:,None]
+            alpha = alpha / np.sum(alpha, axis=1)[:, None]
             mu = mu.detach().numpy()
-            Sigma = Sigma.detach().numpy()
+            Sigma_inv = Sigma_inv.detach().numpy()
 
-        return alpha, mu, Sigma
-        
+        return alpha, mu, Sigma_inv, Sigma_det
+
     def forward(self, params, N=100):
         M = params.size(0)
 
-        alpha, mu, Sigma = self._get_MoG_params(params)
-
-        dbg_check(alpha, 'alpha')
-        dbg_check(mu, 'mu')
-        dbg_check(Sigma, 'Sigma')
-
-        alpha, mu, Sigma = self._get_MoG_params(params, numpy=True)
+        alpha, mu, Sigma_inv, _ = self._get_MoG_params(params, numpy=True)
 
         z = np.zeros((M, N, self.D))
         for i in range(M):
-            p_i = alpha[i,:]
+            p_i = alpha[i, :]
             mult_i = scipy.stats.multinomial(n=1, p=p_i)
             c_i = np.dot(mult_i.rvs(N), np.arange(self.K))
             for j in range(N):
-                mu_ij = mu[i,c_i[j]]
-                Sigma_ij = Sigma[i,c_i[j]]
+                mu_ij = mu[i, c_i[j]]
+                Sigma_ij = np.linalg.inv(Sigma_inv[i, c_i[j]])
                 gauss_ij = scipy.stats.multivariate_normal(mean=mu_ij, cov=Sigma_ij)
-                z[i,j,:] = gauss_ij.rvs(1)
+                z[i, j, :] = gauss_ij.rvs(1)
 
         log_q_z = self.log_prob_np(z, params)
 
+        z = torch.tensor(z).float()
+        log_q_z = torch.tensor(log_q_z).float()
+
         return z, log_q_z
 
-    def log_prob_np(self, z, params=None):
+    def log_prob(self, z, params):
+        alpha, mu, Sigma_inv, Sigma_det = self._get_MoG_params(params)
+        D = mu.shape[2]
+
+        # (M,N,K,D)
+        z = z[:, :, None, :]
+        alpha = alpha[:, None, :]
+        mu = mu[:, None, :, :]
+        Sigma_inv = Sigma_inv[:, None, :, :, :]
+
+        z_mu = z - mu
+        z_mu_T = z_mu[:, :, :, None, :]
+        z_mu = z_mu[:, :, :, :, None]
+
+
+        gauss_probs_num = torch.exp(
+            -0.5 * torch.matmul(torch.matmul(z_mu_T, Sigma_inv), z_mu)
+        )
+
+        gauss_probs_denom =  torch.sqrt(
+            ((2 * np.pi) ** D) * Sigma_det
+        )[:,None,:]
+        gauss_probs = gauss_probs_num[:,:,:,0,0] / gauss_probs_denom
+
+        log_probs = torch.log(torch.sum(alpha * gauss_probs, dim=2))
+        return log_probs
+
+    def log_prob_np(self, z, params):
         M, N, _ = z.shape
-        alpha, mu, Sigma = self._get_MoG_params(params, numpy=True)
-        q_z = np.zeros((M,N))
+        alpha, mu, Sigma_inv, _ = self._get_MoG_params(params, numpy=True)
+        q_z = np.zeros((M, N))
         for i in range(M):
             alpha_i = alpha[i]
             gaussians_i = []
             for k in range(self.K):
-                gaussians_i.append(scipy.stats.multivariate_normal(mean=mu[i,k], cov=Sigma[i,k]))
+                Sigma_ik = np.linalg.inv(Sigma_inv[i,k])
+                gaussians_i.append(
+                    scipy.stats.multivariate_normal(
+                        mean=mu[i, k], cov=Sigma_ik
+                    )
+                )
             for j in range(N):
                 for k in range(self.K):
-                    q_z[i,j] += alpha_i[k]*gaussians_i[k].pdf(z[i,j])
+                    q_z[i, j] += alpha_i[k] * gaussians_i[k].pdf(z[i, j])
         log_q_z = np.log(q_z)
         return log_q_z
 
-    def log_prob(self, z, params=None):
-        return self.log_prob_np(z, params)
-
     def count_num_params(self,):
         # K*(alpha + mu + Sigma)
-        self.D_params = self.K*(1 + self.D + self.D*(self.D+1)//2) 
-
-
+        self.D_params = self.K * (1 + self.D + self.D * (self.D + 1) // 2)
 
 
 class NormFlow(DensityEstimator):
@@ -234,7 +251,7 @@ class NormFlow(DensityEstimator):
 
         self.count_num_params()
 
-        if (not self.conditioner):
+        if not self.conditioner:
             self._param_init()
 
     @property
@@ -370,6 +387,3 @@ class NormFlow(DensityEstimator):
         self.D_params = 0
         for bijector in self.bijectors:
             self.D_params += bijector.count_num_params()
-    
-
-
