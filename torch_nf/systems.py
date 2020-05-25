@@ -9,6 +9,8 @@ class System(object):
         self.D = D
         self.z_labels = None
         self.support_layer = None
+        self.lb = None
+        self.ub = None
         
     def simulate(self,):
         raise NotImplementedError()
@@ -39,7 +41,6 @@ class Gauss(System):
         mu = z
         eps = np.reshape(self.mvn.rvs(M*self.N), (M, self.N, self.D))
         x = np.expand_dims(mu, 1) + eps
-        #x = np.reshape(x, (M, self.N*self.D))
         x = np.mean(x, axis=1)
         return x
 
@@ -91,8 +92,12 @@ class Toy(System):
         self.ub = 3.*np.ones((D,))
         self.prior = Uniform(self.lb, self.ub)
 
+    def valid_samples(self, z):
+        valid_inds =  np.logical_and(self.lb[None,:] < z, z < self.ub[None,:]).all(axis=1)
+        return valid_inds
+
     def simulate(self, z):
-        EPS = 1e-3
+        EPS = 1e-2
         M = z.shape[0]
         m = z[:,:2]
         s1 = z[:,2]**2

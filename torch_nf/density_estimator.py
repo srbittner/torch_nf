@@ -54,7 +54,7 @@ class DensityEstimator(object):
     def _param_init(self,):
         raise NotImplementedError()
 
-
+EPS = 1e-12
 class MoG(DensityEstimator):
     def __init__(self, D, conditioner=False, K=1):
         super().__init__(D, conditioner)
@@ -133,7 +133,12 @@ class MoG(DensityEstimator):
     def forward(self, params, N=100):
         M = params.size(0)
 
-        alpha, mu, Sigma_inv, _ = self._get_MoG_params(params, numpy=True)
+        alpha, mu, Sigma_inv, _ = self._get_MoG_params(params)
+        alpha = alpha.detach().numpy()
+        alpha = alpha / np.sum(alpha, axis=1)[:, None]
+        mu = mu.detach().numpy()
+        D = mu.shape[2]
+        Sigma = torch.inverse(Sigma_inv).detach().numpy() + 0.001*np.eye(D)[None,None,:,:]
 
         z = np.zeros((M, N, self.D))
         for i in range(M):
@@ -142,7 +147,7 @@ class MoG(DensityEstimator):
             c_i = np.dot(mult_i.rvs(N), np.arange(self.K))
             for j in range(N):
                 mu_ij = mu[i, c_i[j]]
-                Sigma_ij = np.linalg.inv(Sigma_inv[i, c_i[j]])
+                Sigma_ij = Sigma[i, c_i[j]]
                 gauss_ij = scipy.stats.multivariate_normal(mean=mu_ij, cov=Sigma_ij)
                 z[i, j, :] = gauss_ij.rvs(1)
 
@@ -177,7 +182,10 @@ class MoG(DensityEstimator):
         )[:,None,:]
         gauss_probs = gauss_probs_num[:,:,:,0,0] / gauss_probs_denom
 
-        log_probs = torch.log(torch.sum(alpha * gauss_probs, dim=2))
+        prob = torch.sum(alpha * gauss_probs, dim=2)
+        #dbg_check(prob, 'prob')
+
+        log_probs = torch.log(prob+EPS)
         return log_probs
 
     def log_prob_np(self, z, params):
@@ -197,7 +205,7 @@ class MoG(DensityEstimator):
             for j in range(N):
                 for k in range(self.K):
                     q_z[i, j] += alpha_i[k] * gaussians_i[k].pdf(z[i, j])
-        log_q_z = np.log(q_z)
+        log_q_z = np.log(q_z+EPS)
         return log_q_z
 
     def count_num_params(self,):

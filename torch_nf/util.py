@@ -3,12 +3,16 @@ import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_dist(z, log_q_z, kde=False, z0=None, z_labels=None, inds=None):
+def plot_dist(z, log_q_z, kde=False, z0=None, z_labels=None, inds=None, lb=None, ub=None):
     if inds is None:
         D = z.shape[1]
         inds = np.arange(D)
     else:
         D = len(inds)
+    if (lb is not None and ub is not None):
+        lb = lb[inds]
+        ub = ub[inds]
+
     df = pd.DataFrame(z[:200,inds])
     if z_labels is None:
         z_labels = ["z%d" % d for d in range(1, D + 1)]
@@ -31,4 +35,11 @@ def plot_dist(z, log_q_z, kde=False, z0=None, z_labels=None, inds=None):
             for j in range(i+1,D):
                 g.axes[i][j].plot(z0[j], z0[i], '*r', markersize=20)
                 g.axes[j][i].plot(z0[i], z0[j], '*r', markersize=20)
+
+                if (lb is not None and ub is not None):
+                    g.axes[i][j].set_xlim([lb[j], ub[j]])
+                    g.axes[i][j].set_ylim([lb[i], ub[i]])
+
+                    g.axes[j][i].set_xlim([lb[i], ub[i]])
+                    g.axes[j][i].set_ylim([lb[j], ub[j]])
     return g

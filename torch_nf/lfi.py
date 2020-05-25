@@ -37,7 +37,6 @@ def train_APT(
     zs = []
     log_probs = []
     optimizer = torch.optim.Adam(cde.parameters(), lr=1e-3)
-    alphas, mus, Sigma_invs = [], [], []
     for r in range(1, R + 1):
         print('r', r)
         it_times = []
@@ -73,7 +72,8 @@ def train_APT(
         else:
             x_all = torch.cat((x_all, x), dim=0)
             z_all = torch.cat((z_all, z), dim=0)
-            log_q_prior_all = torch.cat((log_q_prior_all, log_q_prior), dim=0)
+            if has_norm_flow:
+                log_q_prior_all = torch.cat((log_q_prior_all, log_q_prior), dim=0)
 
             if (has_MoG):
                 alpha_prop_all = torch.cat((alpha_prop_all, alpha_prop), dim=0)
@@ -84,7 +84,7 @@ def train_APT(
                 )
                 Sigma_prop_det_all = torch.cat(
                     (Sigma_prop_det_all, Sigma_prop_det),
-                    cim=0
+                    dim=0
                 )
 
         # Mini-batching for norm flows.
@@ -102,9 +102,6 @@ def train_APT(
                 Sigma_prop_det = Sigma_prop_det_all
 
         for i in range(1, num_iters + 1):
-            #print(42*'*')
-            #print('r', r, 'i', i)
-            #print(42*'*')
             if has_norm_flow:
                 if r==1:
                     z = z_all
@@ -139,22 +136,14 @@ def train_APT(
             if has_MoG:
                 if (r==1):
                     params = cde.param_net(x)
-                    #dbg_check(params, 'params')
                     alpha, mu, Sigma_inv, Sigma_det = cde.density_estimator._get_MoG_params(params)
-                    alphas.append(alpha.detach().numpy())
-                    mus.append(mu.detach().numpy())
-                    Sigma_invs.append(Sigma_inv.detach().numpy())
 
                     log_prob = cde.log_prob(z[:,None,:], x)
 
                     log_q_tilde = log_prob[:,0]
                 else:
                     params = cde.param_net(x)
-                    #dbg_check(params, 'params')
                     alpha, mu, Sigma_inv, Sigma_det = cde.density_estimator._get_MoG_params(params)
-                    alphas.append(alpha.detach().numpy())
-                    mus.append(mu.detach().numpy())
-                    Sigma_invs.append(Sigma_inv.detach().numpy())
 
 
                     mu0 = torch.zeros((system.D,)).float()
@@ -172,64 +161,16 @@ def train_APT(
                         Sigma_prop_inv,
                         Sigma_prop_det,
                     )
-                    #dbg_check(log_q_tilde, 'log_q_tilde')
 
             loss = -torch.mean(log_q_tilde)
             #dbg_check(loss, 'loss')
             _loss = loss.item()
             #print('loss', _loss)
             if (np.isnan(_loss)):
-                alphas = np.array(alphas)
-                K = alphas.shape[2]
-                mean_alphas = np.mean(alphas, axis=1)
-                std_alphas = np.std(alphas, axis=1)
-                its = np.arange(alphas.shape[0])
-
-                plt.figure()
-                for k in range(mean_alphas.shape[1]):
-                    plt.errorbar(its, mean_alphas[:,k], std_alphas[:,k])
-                plt.title('alpha')
-                plt.show()
-
-
-                mus = np.array(mus)
-                D = mus.shape[3]
-                mean_mus = np.mean(mus, axis=1)
-                std_mus = np.std(mus, axis=1)
-                for d in range(D):
-                    plt.figure()
-                    for k in range(K):
-                        plt.errorbar(its, mean_mus[:,k,d], std_mus[:,k,d])
-                    plt.title('mu d=%d' % (d+1))
-                    plt.show()
-
-                Sigma_invs = np.array(Sigma_invs)
-                mean_Sigma_invs = np.mean(Sigma_invs, axis=1)
-                std_Sigma_invs = np.std(Sigma_invs, axis=1)
-                for d in range(D):
-                    plt.figure()
-                    for k in range(K):
-                        plt.errorbar(its, mean_Sigma_invs[:,k,d,d], std_Sigma_invs[:,k,d,d])
-                    plt.title('Sigma_inv[d,d], d=%d' % (d+1))
-                    plt.show()
-
-                for d in range(D-1):
-                    plt.figure()
-                    for k in range(K):
-                        plt.errorbar(its, mean_Sigma_invs[:,k,d,d+1], std_Sigma_invs[:,k,d,d+1])
-                    plt.title('Sigma_inv[d,d+1], d=%d' % (d+1))
-                    plt.show()
-                break
-
                 break
 
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
-            #for ii, param in enumerate(cde.parameters()):
-            #    dbg_check(param, 'param %d' % ii)
-            #for ii, param in enumerate(cde.parameters()):
-                #dbg_check(param.grad, 'param grad %d' % ii)
-                #print(torch.sum(param.grad**2))
             torch.nn.utils.clip_grad_norm_(cde.parameters(), 0.1, 2)
             optimizer.step()
 
@@ -268,18 +209,19 @@ def train_APT(
     sample_times = np.array(sample_times)
     return cde, losses, zs, log_probs, it_time, sample_times
 
+EPS = 1e-12
 def MoG_proposal_posterior(
-    z, 
-    mu0,
-    Sigma0_inv,
-    alpha,
-    mu,
-    Sigma_inv,
-    Sigma_det,
-    alpha_prop,
-    mu_prop,
-    Sigma_prop_inv,
-    Sigma_prop_det,
+    z, # (M, D)
+    mu0, # (D,)
+    Sigma0_inv, # (D,D)
+    alpha, # (M,K)
+    mu, # (M,K,D)
+    Sigma_inv, # (M,K,D,D)
+    Sigma_det, # (M,K)
+    alpha_prop, # (M,K)
+    mu_prop, # (M,K,D)
+    Sigma_prop_inv, # (M,K,D,D)
+    Sigma_prop_det, # (M,K)
 ):
     D = mu0.shape[0]
 
@@ -311,41 +253,41 @@ def MoG_proposal_posterior(
     _muT = torch.transpose(_mu, 4, 3)
     _mu_propT = torch.transpose(_mu_prop, 4, 3)
 
-    exponent = torch.matmul(torch.matmul(mu_starT, Sigma_star_inv), mu_star) + \
-        torch.matmul(torch.matmul(_muT, _Sigma_inv), _mu) + \
-        torch.matmul(torch.matmul(_mu_propT, _Sigma_prop_inv), _mu_prop)
+    exp1 = torch.matmul(torch.matmul(_muT, _Sigma_inv), _mu) 
+    #dbg_check(exp1, 'exp1')
+    #print(torch.min(exp1), torch.max(exp1), exp1.shape)
+    exp2 = torch.matmul(torch.matmul(_mu_propT, _Sigma_prop_inv), _mu_prop)
+    #dbg_check(exp2, 'exp2')
+    #print(torch.min(exp2), torch.max(exp2), exp2.shape)
+    exp3 = torch.matmul(torch.matmul(mu_starT, Sigma_star_inv), mu_star)
+    #dbg_check(exp3, 'exp3')
+    #print(torch.min(exp3), torch.max(exp3), exp3.shape)
+
+    exponent = exp1 + exp2 - exp3
+    #dbg_check(exponent, 'exponent')
+    #print(torch.min(exponent), torch.max(exponent))
     exp_factor = torch.exp(-0.5*exponent[:,:,:,0,0])
+    #dbg_check(exp_factor, 'exp_factor')
 
     Sigma_star_det = 1. / torch.det(Sigma_star_inv)
-    #det_Sigma = 1. / torch.det(_Sigma_inv)
-    #det_Sigma_prop = 1. / torch.det(_Sigma_prop_inv)
     Sigma_det = Sigma_det[:,:,None]
     Sigma_prop_det = Sigma_prop_det[:,None,:]
-    """
-    print('min dets')
-    print(torch.min(Sigma_star_det))
-    print(torch.min(Sigma_det))
-    print(torch.min(Sigma_prop_det))
-    print('max dets')
-    print(torch.max(Sigma_star_det))
-    print(torch.max(Sigma_det))
-    print(torch.max(Sigma_prop_det))
-    """
 
     gamma = torch.sqrt(Sigma_star_det / (Sigma_det*Sigma_prop_det))
     gamma = gamma*exp_factor
-    gamma = _alpha*_alpha_prop*gamma + 1e-12
+    gamma = _alpha*_alpha_prop*gamma + EPS
     gamma = gamma / torch.sum(gamma, dim=(1,2), keepdim=True)
 
     z_mu = _z - mu_star
     z_mu_T = torch.transpose(z_mu, 4, 3)
     gauss_probs_num = torch.exp(-0.5*torch.matmul(torch.matmul(z_mu_T, Sigma_star_inv), z_mu))[:,:,:,0,0]
     gauss_probs_denom = torch.sqrt(((2*np.pi)**D)*Sigma_star_det)
-    print('num', 'denom')
-    print(gauss_probs_num.shape, gauss_probs_denom.shape)
     gauss_probs = gauss_probs_num / gauss_probs_denom
 
-    log_q_tilde = torch.sum(gamma*gauss_probs, dim=(1,2))
+    probs = torch.sum(gamma*gauss_probs, dim=(1,2))
+
+
+    log_q_tilde = torch.log(probs+EPS)
     return log_q_tilde
 
 
@@ -367,10 +309,9 @@ def SNPE_proposal(r, M, system, cde, x0):
             _q_z = np.exp(_log_q_z.detach().numpy())[0]
 
         valid_inds = system.valid_samples(_z)
-        _x = system.simulate(_z)
         _z = _z[valid_inds]
         _q_z = _q_z[valid_inds]
-        _x = _x[valid_inds]
+        _x = system.simulate(_z)
         if _M == 0:
             z = _z
             x = _x
