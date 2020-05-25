@@ -135,9 +135,6 @@ def train_APT(
                     log_q_tilde = log_num - log_denom
             if has_MoG:
                 if (r==1):
-                    params = cde.param_net(x)
-                    alpha, mu, Sigma_inv, Sigma_det = cde.density_estimator._get_MoG_params(params)
-
                     log_prob = cde.log_prob(z[:,None,:], x)
 
                     log_q_tilde = log_prob[:,0]
@@ -254,20 +251,10 @@ def MoG_proposal_posterior(
     _mu_propT = torch.transpose(_mu_prop, 4, 3)
 
     exp1 = torch.matmul(torch.matmul(_muT, _Sigma_inv), _mu) 
-    #dbg_check(exp1, 'exp1')
-    #print(torch.min(exp1), torch.max(exp1), exp1.shape)
     exp2 = torch.matmul(torch.matmul(_mu_propT, _Sigma_prop_inv), _mu_prop)
-    #dbg_check(exp2, 'exp2')
-    #print(torch.min(exp2), torch.max(exp2), exp2.shape)
     exp3 = torch.matmul(torch.matmul(mu_starT, Sigma_star_inv), mu_star)
-    #dbg_check(exp3, 'exp3')
-    #print(torch.min(exp3), torch.max(exp3), exp3.shape)
-
     exponent = exp1 + exp2 - exp3
-    #dbg_check(exponent, 'exponent')
-    #print(torch.min(exponent), torch.max(exponent))
     exp_factor = torch.exp(-0.5*exponent[:,:,:,0,0])
-    #dbg_check(exp_factor, 'exp_factor')
 
     Sigma_star_det = 1. / torch.det(Sigma_star_inv)
     Sigma_det = Sigma_det[:,:,None]
@@ -298,6 +285,7 @@ def clip_grads(params, clip):
 
 
 def SNPE_proposal(r, M, system, cde, x0):
+    print('\n')
     _M = 0
     while _M < M:
         if r == 1:
@@ -321,7 +309,7 @@ def SNPE_proposal(r, M, system, cde, x0):
             q_z = np.concatenate((q_z, _q_z), axis=0)
             x = np.concatenate((x, _x), axis=0)
         _M += sum(valid_inds)
-        print("Cumulative valid proposals:", _M)
+        print("Cumulative valid proposals: %d\r" % _M, end='')
 
     z = z[:M]
     q_z = q_z[:M]
@@ -407,8 +395,6 @@ def train_SNPE(cnf, system, x0, M=500, R=10, num_iters=1000, verbose=True, z0=No
     if verbose:
         print("init")
         z, q_prop, x = SNPE_proposal(2, M, system, cnf, x0_torch)
-        #dbg_check(z, "z")
-        #dbg_check(q_prop, "q_prop")
         z = z.detach()
         q_prop = q_prop.detach()
         plt.figure()

@@ -56,7 +56,7 @@ class DensityEstimator(object):
 
 EPS = 1e-12
 class MoG(DensityEstimator):
-    def __init__(self, D, conditioner=False, K=1):
+    def __init__(self, D, conditioner=False, K=1, lb=None, ub=None):
         super().__init__(D, conditioner)
         self.K = K
 
@@ -69,6 +69,9 @@ class MoG(DensityEstimator):
 
         if not self.conditioner:
             self._param_init()
+
+        self.lb = lb
+        self.ub = ub
 
     @property
     def K(self,):
@@ -98,6 +101,8 @@ class MoG(DensityEstimator):
 
         """
         M = params.shape[0]
+        has_bounds = (self.lb is not None) and (self.ub is not None)
+
         ind_alpha = 0
         ind_next = ind_alpha + self.K
         alpha = self.alpha_softmax(params[:, ind_alpha:ind_next])
@@ -105,6 +110,10 @@ class MoG(DensityEstimator):
         ind_mu = ind_next
         ind_next = ind_mu + self.K * self.D
         mu = params[:, ind_mu:ind_next].view(-1, self.K, self.D)
+        if has_bounds:
+            m = torch.tensor((self.ub - self.lb)/2.).float()[None,None,:]
+            c = torch.tensor((self.ub + self.lb)/2.).float()[None,None,:]
+            mu = m*torch.tanh(mu) + c
 
         # Upper triangular factor of covariance.
         ind_U = ind_next
@@ -114,12 +123,19 @@ class MoG(DensityEstimator):
         U = torch.zeros((M, self.K, self.D, self.D))
         inds = torch.triu_indices(self.D, self.D)
         U[:, :, inds[0], inds[1]] = _U
-        # Multiply the factorization with its transpose.
         U_diag_in = U[:, :, range(self.D), range(self.D)]
-        U[:, :, range(self.D), range(self.D)] = torch.exp(U_diag_in)
+        U_exp_diag = torch.exp(U_diag_in)
+        if has_bounds:
+            U_exp_diag = U_exp_diag / torch.sqrt(m)
+        U[:, :, range(self.D), range(self.D)] = U_exp_diag
+        # Multiply the factorization with its transpose.
         UT = torch.transpose(U, 3, 2)
         Sigma_inv = torch.matmul(UT, U)
-        Sigma_det = torch.prod(torch.exp(-2.*U_diag_in), dim=2)
+
+        if has_bounds:
+            Sigma_det = torch.prod(m*torch.exp(-2.*U_diag_in), dim=2)
+        else:
+            Sigma_det = torch.prod(torch.exp(-2.*U_diag_in), dim=2)
 
         if numpy:
             alpha = alpha.detach().numpy()
@@ -172,9 +188,9 @@ class MoG(DensityEstimator):
         z_mu_T = z_mu[:, :, :, None, :]
         z_mu = z_mu[:, :, :, :, None]
 
-
+        gauss_exps = torch.matmul(torch.matmul(z_mu_T, Sigma_inv), z_mu)
         gauss_probs_num = torch.exp(
-            -0.5 * torch.matmul(torch.matmul(z_mu_T, Sigma_inv), z_mu)
+            -0.5 * gauss_exps
         )
 
         gauss_probs_denom =  torch.sqrt(
@@ -183,7 +199,6 @@ class MoG(DensityEstimator):
         gauss_probs = gauss_probs_num[:,:,:,0,0] / gauss_probs_denom
 
         prob = torch.sum(alpha * gauss_probs, dim=2)
-        #dbg_check(prob, 'prob')
 
         log_probs = torch.log(prob+EPS)
         return log_probs
