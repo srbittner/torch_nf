@@ -57,7 +57,9 @@ def test_ConditionalDensityEstimator():
     x = torch.tensor(np.random.normal(0., 1., (M, cde.D_x))).float()
     z, log_q_z = cde(x, N=N)
     assert(z.shape[0] == M and z.shape[1] == N and z.shape[2] == D)
-    assert(log_q_z is None)
+    assert(log_q_z.shape[0] == M and z.shape[1] == N)
+
+    # TODO more log_q_z testing for MoG
 
     return None
 
