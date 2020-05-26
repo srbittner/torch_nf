@@ -60,10 +60,6 @@ class MoG(DensityEstimator):
         super().__init__(D, conditioner)
         self.K = K
 
-        """
-        Bunch o' stuff.
-        """
-
         self.alpha_softmax = torch.nn.Softmax(dim=1)
         self.count_num_params()
 
@@ -153,12 +149,14 @@ class MoG(DensityEstimator):
         alpha = alpha.detach().numpy()
         alpha = alpha / np.sum(alpha, axis=1)[:, None]
         mu = mu.detach().numpy()
-        D = mu.shape[2]
-        Sigma = torch.inverse(Sigma_inv).detach().numpy() + 0.001*np.eye(D)[None,None,:,:]
+        Sigma = torch.inverse(Sigma_inv).detach().numpy() + 0.001*np.eye(self.D)[None,None,:,:]
 
         z = np.zeros((M, N, self.D))
         for i in range(M):
             p_i = alpha[i, :]
+            print('i', i)
+            print('mu', mu[i,0])
+            print('Sigma', Sigma[i,0])
             mult_i = scipy.stats.multinomial(n=1, p=p_i)
             c_i = np.dot(mult_i.rvs(N), np.arange(self.K))
             for j in range(N):
@@ -176,31 +174,45 @@ class MoG(DensityEstimator):
 
     def log_prob(self, z, params):
         alpha, mu, Sigma_inv, Sigma_det = self._get_MoG_params(params)
-        D = mu.shape[2]
+        if self.K == 1:
+            # (M,N,K,D)
+            # z (M, N, D)
+            # mu (M, 1, D)
+            # Sigma_inv (M, 1, D, D)
 
-        # (M,N,K,D)
-        z = z[:, :, None, :]
-        alpha = alpha[:, None, :]
-        mu = mu[:, None, :, :]
-        Sigma_inv = Sigma_inv[:, None, :, :, :]
+            z_mu = z - mu
+            z_mu_T = z_mu[:, :, None, :]
+            z_mu = z_mu[:, :, :, None]
 
-        z_mu = z - mu
-        z_mu_T = z_mu[:, :, :, None, :]
-        z_mu = z_mu[:, :, :, :, None]
+            log_probs = torch.matmul(torch.matmul(z_mu_T, Sigma_inv), z_mu)[:,:,0,0]
+            log_probs += torch.log(Sigma_det+EPS) 
+            log_probs += self.D*np.log(2.*np.pi)
+            log_probs = -0.5*log_probs
 
-        gauss_exps = torch.matmul(torch.matmul(z_mu_T, Sigma_inv), z_mu)
-        gauss_probs_num = torch.exp(
-            -0.5 * gauss_exps
-        )
+        else:
+            z = z[:, :, None, :]
+            alpha = alpha[:, None, :]
+            mu = mu[:, None, :, :]
+            Sigma_inv = Sigma_inv[:, None, :, :, :]
 
-        gauss_probs_denom =  torch.sqrt(
-            ((2 * np.pi) ** D) * Sigma_det
-        )[:,None,:]
-        gauss_probs = gauss_probs_num[:,:,:,0,0] / gauss_probs_denom
+            z_mu = z - mu
+            z_mu_T = z_mu[:, :, :, None, :]
+            z_mu = z_mu[:, :, :, :, None]
 
-        prob = torch.sum(alpha * gauss_probs, dim=2)
+            gauss_exps = torch.matmul(torch.matmul(z_mu_T, Sigma_inv), z_mu)
+            gauss_probs_num = torch.exp(
+                -0.5 * gauss_exps
+            )
 
-        log_probs = torch.log(prob+EPS)
+            gauss_probs_denom =  torch.sqrt(
+                ((2 * np.pi) ** self.D) * Sigma_det + EPS
+            )[:,None,:]
+            gauss_probs = gauss_probs_num[:,:,:,0,0] / gauss_probs_denom
+
+            prob = torch.sum(alpha * gauss_probs, dim=2)
+
+            log_probs = torch.log(prob+EPS)
+
         return log_probs
 
     def log_prob_np(self, z, params):

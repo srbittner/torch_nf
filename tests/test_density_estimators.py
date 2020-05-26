@@ -43,7 +43,7 @@ def test_DensityEstimator():
 
     return None
 
-def get_MoG_params(params, K, D):
+def get_MoG_params(params, K, D, lb=None,ub=None):
     beg_alpha = 0
     beg_mu = beg_alpha+K
     beg_Sigma_inv = beg_mu+(K*D)
@@ -55,12 +55,20 @@ def get_MoG_params(params, K, D):
     # Softmax
     exp_alpha = np.exp(_alpha)
     alpha = exp_alpha / np.sum(exp_alpha)
+    
+    has_bounds = (lb is not None) and (ub is not None)
+    if has_bounds:
+        m = ((ub - lb)/2.)[None,:]
+        c = ((ub + lb)/2.)[None,:]
+        mu = m*np.tanh(mu) + c
 
     inds = np.triu_indices(D)
     U = np.zeros((K,D,D))
     for k in range(K):
         U[k,inds[0], inds[1]] = _U[k,:]
     U[:,range(D),range(D)] = np.exp(U[:,range(D),range(D)])
+    if has_bounds:
+        U[:,range(D),range(D)] = U[:,range(D),range(D)] / np.sqrt(m)
     Sigma_inv = np.matmul(np.transpose(U, (0,2,1)), U)
 
     return alpha, mu, Sigma_inv
@@ -72,55 +80,59 @@ def test_MoG():
     D = 4
     conditioner = False
     K = 1
+
     mog = de.MoG(D, conditioner, K)
     assert mog.D == D
     assert not conditioner
     assert mog.K == K
 
-   
-    K = 3
-    conditioner = True
-    M = 50
-    mog = de.MoG(D, conditioner, K)
-    mog.count_num_params()
+    for K in [1, 3]:
+        conditioner = True
+        M = 50
+        lb = np.random.normal(5., 1., (D,))
+        ub = np.random.normal(15., 1., (D,))
 
-    params = torch.normal(0., 1., (M, mog.D_params))
-    alpha, mu, Sigma_inv, Sigma_det = mog._get_MoG_params(params)
+        mog = de.MoG(D, conditioner, K, lb=lb, ub=ub)
+        mog.count_num_params()
 
-    # Test that alpha obeys softmax property.
-    assert np.isclose(alpha.sum(1).numpy(), 1.).all()
-    # Test that Sigma_mk is PSD.
-    for m in range(M):
-        for k in range(K):
-            Sigma_inv_mk = Sigma_inv[m,k,:,:]
-            assert (Sigma_inv_mk[range(D),range(D)] >= 0.).all()
-            assert np.isclose(Sigma_inv_mk, Sigma_inv_mk.T).all()
+        params = torch.normal(0., 1., (M, mog.D_params))
+        alpha, mu, Sigma_inv, Sigma_det = mog._get_MoG_params(params)
 
-    alpha_true, mu_true, Sigma_inv_true, Sigma_det_true = [], [], [], []
-    for i in range(M):
-        _alpha, _mu, _Sigma_inv = get_MoG_params(params[i,:].numpy(), K, D)
-        alpha_true.append(_alpha)
-        mu_true.append(_mu)
-        Sigma_inv_true.append(_Sigma_inv)
-        Sigma_det_true.append(1. / np.linalg.det(_Sigma_inv))
-    alpha_true = np.array(alpha_true)
-    mu_true = np.array(mu_true)
-    Sigma_inv_true = np.array(Sigma_inv_true)
-    Sigma_det_true = np.array(Sigma_det_true)
+        # Test that alpha obeys softmax property.
+        assert np.isclose(alpha.sum(1).numpy(), 1.).all()
+        # Test that Sigma_mk is PSD.
+        for m in range(M):
+            for k in range(K):
+                Sigma_inv_mk = Sigma_inv[m,k,:,:]
+                assert (Sigma_inv_mk[range(D),range(D)] >= 0.).all()
+                assert np.isclose(Sigma_inv_mk, Sigma_inv_mk.T).all()
 
-    print(alpha_true.shape, alpha.shape)
-    assert np.isclose(alpha_true, alpha, rtol=1e-3).all()
-    assert np.isclose(mu_true, mu, rtol=1e-3).all()
-    assert np.isclose(Sigma_inv_true, Sigma_inv.numpy(), rtol=1e-3).all()
-    assert np.isclose(Sigma_det_true, Sigma_det.numpy(), rtol=1e-3).all()
+        alpha_true, mu_true, Sigma_inv_true, Sigma_det_true = [], [], [], []
+        for i in range(M):
+            _alpha, _mu, _Sigma_inv = get_MoG_params(params[i,:].numpy(), K, D, lb=lb, ub=ub)
+            alpha_true.append(_alpha)
+            mu_true.append(_mu)
+            Sigma_inv_true.append(_Sigma_inv)
+            Sigma_det_true.append(1. / np.linalg.det(_Sigma_inv))
+        alpha_true = np.array(alpha_true)
+        mu_true = np.array(mu_true)
+        Sigma_inv_true = np.array(Sigma_inv_true)
+        Sigma_det_true = np.array(Sigma_det_true)
+        
+        print(alpha_true.shape, alpha.shape)
+        assert np.isclose(alpha_true, alpha, rtol=1e-3).all()
+        assert np.isclose(mu_true, mu, rtol=1e-3).all()
+        assert np.isclose(Sigma_inv_true, Sigma_inv.numpy(), rtol=1e-3).all()
+        assert np.isclose(Sigma_det_true, Sigma_det.numpy(), rtol=1e-3).all()
 
-    z, log_q_z = mog.forward(params, N=10)
+        z, log_q_z = mog.forward(params, N=10)
 
-    log_p_z_np = mog.log_prob_np(z, params)
-    assert(np.isclose(log_q_z, log_p_z_np).all())
+        log_p_z_np = mog.log_prob_np(z, params)
+        assert(np.isclose(log_q_z, log_p_z_np, rtol=1e-4).all())
 
-    log_p_z_torch = mog.log_prob(z, params)
-    assert(np.isclose(log_p_z_torch.numpy(), log_p_z_np, rtol=1e-3).all())
+        log_p_z_torch = mog.log_prob(z, params)
+
+        assert(np.isclose(log_p_z_torch.numpy(), log_p_z_np, rtol=1e-2).all())
 
     return None
 
