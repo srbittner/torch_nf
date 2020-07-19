@@ -3,6 +3,7 @@ import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def plot_dist(z, log_q_z, kde=False, z0=None, z_labels=None, inds=None, lb=None, ub=None):
     if inds is None:
         D = z.shape[1]
