@@ -88,9 +88,9 @@ def test_MoG():
 
     for K in [1, 3]:
         conditioner = True
-        M = 50
-        lb = np.random.normal(5., 1., (D,))
-        ub = np.random.normal(15., 1., (D,))
+        M = 10
+        lb = np.random.normal(-3., 0.01, (D,))
+        ub = np.random.normal(3., 0.01, (D,))
 
         mog = de.MoG(D, conditioner, K, lb=lb, ub=ub)
         mog.count_num_params()
