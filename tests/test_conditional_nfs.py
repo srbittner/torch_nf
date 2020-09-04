@@ -2,7 +2,8 @@
 
 import numpy as np
 import torch
-from torch_nf.conditional_nf import NormFlow, ConditionedNormFlow
+from torch_nf.density_estimator import NormFlow
+from torch_nf.conditional_nf import ConditionedNormFlow
 from torch_nf.bijectors import Bijector, RealNVP, MAF, BatchNorm, ToSimplex, Affine
 from pytest import raises
 
@@ -22,7 +23,7 @@ def test_NormFlow():
     num_units = 30
     support_layer = None
     nf = NormFlow(
-        D, arch_type, conditioner, num_stages, num_layers, num_units, support_layer
+        D, conditioner, arch_type, num_stages, num_layers, num_units, support_layer
     )
     assert nf.D == D
     assert nf.arch_type == arch_type
@@ -32,44 +33,45 @@ def test_NormFlow():
     assert nf.support_layer == support_layer
 
     nf = NormFlow(
-        D, arch_type, conditioner, num_stages, num_layers, 10, ToSimplex(D)
+        D, conditioner, arch_type, num_stages, num_layers, 10, ToSimplex(D)
     )
 
     assert nf.num_units == 15
     assert issubclass(type(nf.support_layer), Bijector)
 
     with raises(TypeError):
-        nf = NormFlow('foo', 'coupling', False, 1, 2, 20, None)
+        nf = NormFlow('foo', False, 'coupling', 1, 2, 20, None)
     with raises(ValueError):
-        nf = NormFlow(-1, 'coupling', False, 1, 2, 20, None)
+        nf = NormFlow(-1, False, 'coupling', 1, 2, 20, None)
 
     with raises(TypeError):
-        nf = NormFlow(4, 1, False, 1, 2, 20, None)
+        nf = NormFlow(4, 1, 'coupling', 1, 2, 20, None)
+
+    with raises(TypeError):
+        nf = NormFlow(4, False, 1, 1, 2, 20, None)
     with raises(ValueError):
-        nf = NormFlow(4, 'foo', False, 1, 2, 20, None)
+        nf = NormFlow(4, False, 'foo', 1, 2, 20, None)
+
 
     with raises(TypeError):
-        nf = NormFlow(4, 'coupling', 1, 1, 2, 20, None)
-
-    with raises(TypeError):
-        nf = NormFlow(4, 'coupling', False, 'foo', 2, 20, None)
+        nf = NormFlow(4, False, 'coupling', 'foo', 2, 20, None)
     with raises(ValueError):
-        nf = NormFlow(4, 'coupling', False, -1, 2, 20, None)
+        nf = NormFlow(4, False, 'coupling', -1, 2, 20, None)
 
     with raises(TypeError):
-        nf = NormFlow(4, 'coupling', False, 1, 'foo', 20, None)
+        nf = NormFlow(4, False, 'coupling', 1, 'foo', 20, None)
     with raises(ValueError):
-        nf = NormFlow(4, 'coupling', False, 1, -1, 20, None)
+        nf = NormFlow(4, False, 'coupling', 1, -1, 20, None)
 
     with raises(TypeError):
-        nf = NormFlow(4, 'coupling', False, 1, 2, 'foo', None)
+        nf = NormFlow(4, False, 'coupling', 1, 2, 'foo', None)
     with raises(ValueError):
-        nf = NormFlow(4, 'coupling', False, 1, 2, -1, None)
+        nf = NormFlow(4, False, 'coupling', 1, 2, -1, None)
 
     with raises(TypeError):
-        nf = NormFlow(4, 'coupling', False, 1, 2, 20, 'foo')
+        nf = NormFlow(4, False, 'coupling', 1, 2, 20, 'foo')
 
-    nf = NormFlow(D, 'coupling', False, 1, 2, 20, None)
+    nf = NormFlow(D, False, 'coupling', 1, 2, 20, None)
 
     N = 10
     z, log_q_z = nf(N)
@@ -78,7 +80,7 @@ def test_NormFlow():
     log_q_z_inv = nf.log_prob(z)
     assert(np.sum(np.square(log_q_z.detach().numpy() - log_q_z_inv.detach().numpy())) < 1e-2)
     
-    nf = NormFlow(D, 'coupling', True, 2, 2, 20, ToSimplex(D))
+    nf = NormFlow(D, True, 'coupling', 2, 2, 20, ToSimplex(D))
     assert(issubclass(type(nf.bijectors[0]), RealNVP))
     assert(issubclass(type(nf.bijectors[1]), BatchNorm))
     assert(issubclass(type(nf.bijectors[2]), RealNVP))
@@ -91,13 +93,13 @@ def test_NormFlow():
     assert(issubclass(type(nf.bijectors[9]), Affine))
     assert(issubclass(type(nf.bijectors[10]), ToSimplex))
 
-    nf = NormFlow(D, 'coupling', False, 2, 2, 20)
+    nf = NormFlow(D, False, 'coupling', 2, 2, 20)
     assert(issubclass(type(nf.bijectors[0]), RealNVP))
     z, log_q_z = nf(N)
     log_q_z_inv = nf.log_prob(z)
     assert(np.sum(np.square(log_q_z.detach().numpy() - log_q_z_inv.detach().numpy())) < 1e-2)
 
-    nf = NormFlow(D, 'autoregressive', False, num_layers=2, num_units=20)
+    nf = NormFlow(D, False, 'AR', num_layers=2, num_units=20)
     assert(issubclass(type(nf.bijectors[0]), MAF))
     z, log_q_z = nf(N)
     log_q_z_inv = nf.log_prob(z)
@@ -107,7 +109,7 @@ def test_NormFlow():
 
 def test_ConditionedNormFlow():
     D = 4
-    nf = NormFlow(D, 'coupling', True, 1, 2, 20, None)
+    nf = NormFlow(D, True, 'coupling', 1, 2, 20, None)
     D_x = 10
     hidden_layers = [50, 100]
     cnf = ConditionedNormFlow(nf, D_x, hidden_layers)
@@ -123,7 +125,7 @@ def test_ConditionedNormFlow():
     assert(np.sum(np.square(log_q_z.detach().numpy() - log_q_z_inv.detach().numpy())) < 1e-2)
 
     D = 4
-    nf = NormFlow(D, 'autoregressive', True, 1, 2, 20, None)
+    nf = NormFlow(D, True, 'AR', 1, 2, 20, None)
     D_x = 10
     hidden_layers = [50, 50]
     cnf = ConditionedNormFlow(nf, D_x, hidden_layers)
