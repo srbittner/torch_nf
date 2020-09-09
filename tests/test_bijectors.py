@@ -33,6 +33,8 @@ def test_Bijector_init():
     with raises(NotImplementedError):
         z, log_det = bijector.forward_and_log_det(z, params)
 
+    with raises(NotImplementedError):
+        z, log_det = bijector.inverse_and_log_det(z, params)
     return None
 
 
@@ -134,8 +136,8 @@ def test_MAF():
     assert maf.num_layers == 5
     assert maf.num_units == 1000
 
-    maf = MAF(D, 3, 10)
-    #assert maf.num_units == 15
+    maf = MAF(D, 3, 4)
+    assert maf.num_units == 5
 
     with raises(TypeError):
         maf = MAF(D, "foo", 10)
@@ -158,6 +160,9 @@ def test_MAF():
     D_outs = num_layers*[num_units] + [D]
     for i, M in enumerate(maf.Ms):
         assert M.shape[0] == 1 and M.shape[1] == D_ins[i] and M.shape[2] == D_outs[i]
+
+    # reverse fac
+    maf = MAF(D, num_layers, num_units, fwd_fac=False)
 
     M = 50
     N = 20
@@ -227,6 +232,38 @@ def test_ToInterval():
     z_inv, log_det_inv = interval.inverse_and_log_det(z)
     assert np.sum((z_in.numpy() - z_inv.numpy()) ** 2) < 1e-4
     assert np.sum((log_det.numpy() - log_det_inv.numpy()) ** 2) < 1e-4
+
+    lb = -np.ones((D,))
+    ub = np.ones((D+1,))
+    with raises(ValueError):
+        interval = ToInterval(D, lb, ub)
+
+    lb = -np.ones((D,))
+    ub = np.ones((D,))
+    ub[3] = -2
+    with raises(ValueError):
+        interval = ToInterval(D, lb, ub)
+
+    lb = '[-1,-1,-1,-1]'
+    ub = np.ones((D,))
+    with raises(TypeError):
+        interval = ToInterval(D, lb, ub)
+    lb = [-1,-1,-1,-1]
+    z, log_det = interval(z_in)
+    z_inv, log_det_inv = interval.inverse_and_log_det(z)
+    assert np.sum((z_in.numpy() - z_inv.numpy()) ** 2) < 1e-10
+
+    lb = -np.ones((D,))
+    ub = '[1,1,1,1]'
+    with raises(TypeError):
+        interval = ToInterval(D, lb, ub)
+    ub = [1, 1, 1, 1]
+    z, log_det = interval(z_in)
+    z_inv, log_det_inv = interval.inverse_and_log_det(z)
+    assert np.sum((z_in.numpy() - z_inv.numpy()) ** 2) < 1e-10
+
+
+
 
     return None
 
