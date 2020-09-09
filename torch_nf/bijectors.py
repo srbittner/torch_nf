@@ -203,8 +203,6 @@ class RealNVP(Bijector):
             z = torch.cat([z2, z1], dim=2)
 
         log_det = torch.sum(s, dim=2)
-        # dbg_check(z, 'z')
-        # dbg_check(log_det, 'log_det')
         return z, log_det
 
     def _t_s_layer(self, x_t, x_s, params, D_in, D_out, tanh=True):
@@ -806,18 +804,3 @@ class MAF(Bijector):
         return 2 * (
             2 * self.D * self.num_units + (self.num_layers - 1) * (self.num_units ** 2)
         )
-
-
-
-
-def dbg_check(tensor, name):
-    num_elems = 1
-    for dim in tensor.shape:
-        num_elems *= dim
-    num_infs = torch.sum(torch.isinf(tensor)).item()
-    num_nans = torch.sum(torch.isnan(tensor)).item()
-
-    print(
-        name, "infs %d/%d" % (num_infs, num_elems), "nans %d/%d" % (num_nans, num_elems)
-    )
-    return None

@@ -1,5 +1,7 @@
 """ Test error message string formatters."""
 
+import numpy as np
+import torch
 from torch_nf.error_formatters import *
 from pytest import raises
 
@@ -28,6 +30,25 @@ def test_format_type_err_msg():
 
     return None
 
+def test_dbg_check():
+    M = 20
+    N = 50
+    D = 4
+    y = torch.normal(0., 1., (M,N,D))
+    assert not dbg_check(y, 'y')
+
+    y[0,5,2] = np.nan
+    assert dbg_check(y, 'y')
+
+    y[3,1,2] = np.inf
+    assert dbg_check(y, 'y')
+
+    y[0,5,2] = 0.
+    y[3,1,2] = 0.
+    assert not dbg_check(y, 'y')
+    return None
+
 
 if __name__ == "__main__":
     test_format_type_err_msg()
+    test_dbg_check()

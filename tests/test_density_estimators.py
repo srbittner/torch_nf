@@ -41,6 +41,8 @@ def test_DensityEstimator():
     with raises(NotImplementedError):
         de2.count_num_params()
 
+    with raises(NotImplementedError):
+        de2._param_init()
     return None
 
 def get_MoG_params(params, K, D, lb=None,ub=None):
@@ -85,6 +87,11 @@ def test_MoG():
     assert mog.D == D
     assert not conditioner
     assert mog.K == K
+
+    with raises(TypeError):
+        mog = de.MoG(D, True, 2.)
+    with raises(ValueError):
+        mog = de.MoG(D, True, 0)
 
     for K in [1, 3]:
         conditioner = True
@@ -229,10 +236,16 @@ def test_NormFlow():
 
     assert(np.sum(np.square(log_q_z.detach().numpy() - log_q_z_inv.detach().numpy())) < 1e-2)
 
+    nf = de.NormFlow(D, False, 'affine')
+    assert(issubclass(type(nf.bijectors[0]), bij.Affine))
+    z, log_q_z = nf(N)
+    log_q_z_inv = nf.log_prob(z)
+    assert(np.sum(np.square(log_q_z.detach().numpy() - log_q_z_inv.detach().numpy())) < 1e-2)
+
     return None
     
 
 if __name__ == "__main__":
     #test_DensityEstimator()
-    #test_NormFlow()
-    test_MoG()
+    #test_MoG()
+    test_NormFlow()

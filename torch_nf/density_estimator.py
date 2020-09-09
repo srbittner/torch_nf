@@ -154,9 +154,6 @@ class MoG(DensityEstimator):
         z = np.zeros((M, N, self.D))
         for i in range(M):
             p_i = alpha[i, :]
-            print('i', i)
-            print('mu', mu[i,0])
-            print('Sigma', Sigma[i,0])
             mult_i = scipy.stats.multinomial(n=1, p=p_i)
             c_i = np.dot(mult_i.rvs(N), np.arange(self.K))
             for j in range(N):

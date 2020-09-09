@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import torch_nf.density_estimator as de
-from torch_nf.error_formatters import format_type_err_msg
+from torch_nf.error_formatters import format_type_err_msg, dbg_check
 from collections import OrderedDict
 import time
 
@@ -16,21 +16,24 @@ class ConditionalDensityEstimator(torch.nn.Module):
         self.hidden_layers = hidden_layers
         self.dropout = dropout
 
-        hl = hidden_layers
-
         layers = [
-            ("linear1", torch.nn.Linear(D_x, hidden_layers[0])),
+            ("linear1", torch.nn.Linear(D_x, self.hidden_layers[0])),
             ("tanh1", torch.nn.Tanh()),
         ]
         if self.dropout:
             layers.append(("dropout1", torch.nn.Dropout()))
-        for i in range(1, len(hl)):
-            layers.append(("linear%d" % (i + 1), torch.nn.Linear(hl[i - 1], hl[i])))
+        for i in range(1, len(self.hidden_layers)):
+            layers.append(
+                    ("linear%d" % (i + 1), 
+                     torch.nn.Linear(
+                         self.hidden_layers[i - 1], 
+                         self.hidden_layers[i])))
             layers.append(("relu%d" % (i + 1), torch.nn.Tanh()))
             if self.dropout:
                 layers.append(("dropout%d" % (i + 1), torch.nn.Dropout()))
         layers.append(
-            ("linear%d" % (len(hl) + 1), torch.nn.Linear(hl[-1], self.D_params))
+            ("linear%d" % (len(self.hidden_layers) + 1), 
+             torch.nn.Linear(self.hidden_layers[-1], self.D_params))
         )
 
         layer_dict = OrderedDict(layers)
@@ -99,15 +102,3 @@ class ConditionalDensityEstimator(torch.nn.Module):
         params = self.param_net(x)
         log_prob = self.density_estimator.log_prob(z, params)
         return log_prob
-
-def dbg_check(tensor, name):
-    num_elems = 1
-    for dim in tensor.shape:
-        num_elems *= dim
-    num_infs = torch.sum(torch.isinf(tensor)).item()
-    num_nans = torch.sum(torch.isnan(tensor)).item()
-
-    print(
-        name, "infs %d/%d" % (num_infs, num_elems), "nans %d/%d" % (num_nans, num_elems)
-    )
-    return None

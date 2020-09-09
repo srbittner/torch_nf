@@ -29,6 +29,29 @@ def test_ConditionalDensityEstimator():
     log_q_z_inv = cde.log_prob(z, x)
     assert(np.sum(np.square(log_q_z.detach().numpy() - log_q_z_inv.detach().numpy())) < 1e-2)
 
+    cde = ConditionalDensityEstimator(nf, D_x, hidden_layers, dropout=True)
+    with raises(TypeError):
+        cde = ConditionalDensityEstimator('foo', D_x, hidden_layers)
+
+    with raises(TypeError):
+        cde = ConditionalDensityEstimator(nf, 'foo', hidden_layers)
+    with raises(ValueError):
+        cde = ConditionalDensityEstimator(nf, 0, hidden_layers)
+
+    with raises(TypeError):
+        cde = ConditionalDensityEstimator(nf, D_x, 'foo')
+    with raises(TypeError):
+        cde = ConditionalDensityEstimator(nf, D_x, [20, 'foo'])
+    with raises(ValueError):
+        cde = ConditionalDensityEstimator(nf, D_x, [20, -4])
+
+    nf.D_params = 4.
+    with raises(TypeError):
+        cde = ConditionalDensityEstimator(nf, D_x, hidden_layers)
+    nf.D_params = 0 
+    with raises(ValueError):
+        cde = ConditionalDensityEstimator(nf, D_x, hidden_layers)
+    
     D = 4
     nf = de.NormFlow(D, True, 'AR', 1, 2, 20, None)
     D_x = 10

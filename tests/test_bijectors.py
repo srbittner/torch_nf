@@ -249,6 +249,7 @@ def test_ToInterval():
     with raises(TypeError):
         interval = ToInterval(D, lb, ub)
     lb = [-1,-1,-1,-1]
+    interval = ToInterval(D, lb, ub)
     z, log_det = interval(z_in)
     z_inv, log_det_inv = interval.inverse_and_log_det(z)
     assert np.sum((z_in.numpy() - z_inv.numpy()) ** 2) < 1e-10
@@ -258,6 +259,7 @@ def test_ToInterval():
     with raises(TypeError):
         interval = ToInterval(D, lb, ub)
     ub = [1, 1, 1, 1]
+    interval = ToInterval(D, lb, ub)
     z, log_det = interval(z_in)
     z_inv, log_det_inv = interval.inverse_and_log_det(z)
     assert np.sum((z_in.numpy() - z_inv.numpy()) ** 2) < 1e-10
